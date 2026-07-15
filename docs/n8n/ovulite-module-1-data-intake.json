@@ -1,0 +1,39 @@
+{
+  "name": "Ovulite Module 1 - Data Intake and Validation",
+  "nodes": [
+    {
+      "parameters": {"httpMethod": "POST", "path": "ovulite-data-intake", "responseMode": "lastNode", "options": {"binaryPropertyName": "data"}},
+      "id": "intake-webhook", "name": "File Upload Trigger", "type": "n8n-nodes-base.webhook", "typeVersion": 2, "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST", "url": "={{$env.OVULITE_API_URL + '/import/file'}}",
+        "sendHeaders": true, "headerParameters": {"parameters": [{"name": "Authorization", "value": "={{'Bearer ' + $env.OVULITE_API_TOKEN}}"}]},
+        "sendBody": true, "contentType": "multipart-form-data",
+        "bodyParameters": {"parameters": [{"parameterType": "formBinaryData", "name": "file", "inputDataFieldName": "data"}]},
+        "options": {"timeout": 300000}
+      },
+      "id": "validate-upload", "name": "Ovulite Immutable Intake and Validation", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4.2, "position": [260, 0]
+    },
+    {
+      "parameters": {"conditions": {"options": {"caseSensitive": true}, "conditions": [{"leftValue": "={{$json.quarantined}}", "rightValue": true, "operator": {"type": "boolean", "operation": "true", "singleValue": true}}]}},
+      "id": "quarantine-check", "name": "Was File Quarantined?", "type": "n8n-nodes-base.if", "typeVersion": 2.2, "position": [520, 0]
+    },
+    {
+      "parameters": {"resource": "message", "operation": "post", "channel": "={{$env.OVULITE_SLACK_CHANNEL}}", "text": "={{'Ovulite QUARANTINE: ' + $json.metadata.file_name + ' - ' + $json.summary.reason}}"},
+      "id": "slack-alert", "name": "Slack Quarantine Alert", "type": "n8n-nodes-base.slack", "typeVersion": 2.2, "position": [780, -100]
+    },
+    {
+      "parameters": {"fromEmail": "={{$env.OVULITE_ALERT_FROM}}", "toEmail": "={{$env.OVULITE_ALERT_TO}}", "subject": "={{'Ovulite intake: ' + $json.summary.status}}", "text": "={{JSON.stringify($json, null, 2)}}"},
+      "id": "email-summary", "name": "Email Validation Summary", "type": "n8n-nodes-base.emailSend", "typeVersion": 2.1, "position": [780, 100]
+    }
+  ],
+  "connections": {
+    "File Upload Trigger": {"main": [[{"node": "Ovulite Immutable Intake and Validation", "type": "main", "index": 0}]]},
+    "Ovulite Immutable Intake and Validation": {"main": [[{"node": "Was File Quarantined?", "type": "main", "index": 0}]]},
+    "Was File Quarantined?": {"main": [[{"node": "Slack Quarantine Alert", "type": "main", "index": 0}], [{"node": "Email Validation Summary", "type": "main", "index": 0}]]}
+  },
+  "active": false,
+  "settings": {"executionOrder": "v1"},
+  "versionId": "7d643824-d288-4f88-853a-b60640d662d4"
+}

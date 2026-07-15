@@ -5,12 +5,13 @@ from sqlalchemy import CheckConstraint, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.models.mixins import OrganizationScopedMixin
 
 if TYPE_CHECKING:
     from app.models.et_transfer import ETTransfer
 
 
-class Recipient(Base):
+class Recipient(OrganizationScopedMixin, Base):
     __tablename__ = "recipients"
 
     recipient_id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)

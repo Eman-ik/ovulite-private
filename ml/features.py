@@ -1,262 +1,132 @@
-"""Feature engineering — build canonical feature matrix from ET Data CSV.
-
-Mirrors the vw_et_features database view but reads directly from CSV
-for offline training. The prediction API uses the DB view at inference time.
-"""
+"""Canonical, leakage-safe feature preparation for pregnancy prediction."""
 
 import re
-from datetime import datetime
 
 import numpy as np
 import pandas as pd
 
-from ml.config import (
-    CATEGORICAL_FEATURES,
-    DATA_CSV,
-    LEAKAGE_COLUMNS,
-    NUMERIC_FEATURES,
-    TARGET_COL,
-)
+from ml.config import CATEGORICAL_FEATURES, DATA_CSV, NUMERIC_FEATURES, TARGET_COL
 
-# ── CSV column mapping (raw CSV header → canonical name) ─────
+
 _COL_MAP = {
     "# ET": "et_number",
     "ET Date": "et_date",
     "Customer ID": "customer_id",
+    "ET Location (recipient farm)": "farm_location",
     "ET Location": "farm_location",
-    "Recipient ID (1st)": "recipient_tag",
+    "Recipient ID": "recipient_tag",
     "Cow/Heifer": "cow_or_heifer",
     "BC Score": "bc_score",
+    "BCScore": "bc_score",
     "CL Side": "cl_side",
     "CL measure (mm)": "cl_measure_mm",
     "Protocol": "protocol_name",
     "Fresh or Frozen": "fresh_or_frozen",
     "ET Tech": "technician_name",
-    "ET assistant": "assistant_name",
     "Embryo Stage 4-8": "embryo_stage",
     "Embryo Grade": "embryo_grade",
-    "Heat": "heat_observed",
     "Heat day": "heat_day",
-    "1st PC date": "pc1_date",
     "1st PC Result": "pc1_result",
-    "2nd PC date": "pc2_date",
-    "2nd PC Result": "pc2_result",
-    "Fetal Sexing": "fetal_sexing",
     "OPU Date": "opu_date",
     "Donor": "donor_tag",
     "Donor Breed": "donor_breed",
     "Donor BW EPD": "donor_bw_epd",
-    "SIRE Name": "sire_name",
-    "SIRE Breed": "sire_breed",
     "SIRE BW EPD": "sire_bw_epd",
     "Semen type": "semen_type",
-    "BCScore": "bc_score_alt",  # duplicate column
 }
 
 
-def _parse_date(val: str) -> pd.Timestamp | None:
-    """Parse M/D/YYYY or similar date strings, return None for dirty values."""
-    if val is None:
-        return None
-    if isinstance(val, float) and pd.isna(val):
-        return None
-
-    s = str(val).strip()
-    if s in (".", "", "nan", "None"):
-        return None
-    try:
-        return pd.to_datetime(s, format="mixed", dayfirst=False)
-    except Exception:
-        return None
-
-
-def _clean_dot(val):
-    """Replace '.' sentinel with NaN."""
-    if isinstance(val, str) and val.strip() == ".":
-        return np.nan
-    return val
-
-
-def _normalize_semen_type(val):
-    if pd.isna(val):
-        return val
-    val = str(val).strip()
-    if re.search(r"pre.?sort", val, re.IGNORECASE):
-        return "Sexed"
-    return val
-
-
-def _normalize_cl_side(val):
-    if pd.isna(val):
-        return val
-    val = str(val).strip().title()
-    if val in ("Left", "Right"):
-        return val
-    return np.nan
-
-
-def _normalize_pc_result(val):
-    if pd.isna(val):
-        return val
-    val = str(val).strip()
-    mapping = {"P": "Pregnant", "O": "Open", "R": "Recheck"}
-    return mapping.get(val, val)
-
-
 def load_raw_csv(csv_path: str | None = None) -> pd.DataFrame:
-    """Load and minimally clean the raw ET Data CSV."""
-    path = csv_path or str(DATA_CSV)
-    df = pd.read_csv(path, dtype=str)
-    # Drop fully-empty rows
-    df = df.dropna(how="all").reset_index(drop=True)
-    return df
+    """Load a dataset-folder CSV without silently coercing identifiers."""
+    return pd.read_csv(csv_path or DATA_CSV, dtype=str).dropna(how="all").reset_index(drop=True)
+
+
+def _target_from_result(values: pd.Series) -> pd.Series:
+    normalized = values.fillna("").astype(str).str.strip().str.lower()
+    return normalized.map({"pregnant": 1, "p": 1, "positive": 1, "open": 0, "o": 0, "negative": 0})
 
 
 def build_feature_matrix(csv_path: str | None = None) -> pd.DataFrame:
-    """Build the canonical feature matrix from raw CSV.
+    """Return pre-transfer features plus target, donor group, and transfer date.
 
-    Returns a DataFrame with:
-    - All features from REQUIREMENTS §3.4
-    - Binary target column (pregnancy_outcome: 1=Pregnant, 0=Open)
-    - donor_tag for GroupKFold splitting
-    - et_date for temporal splitting
-    - transfer_id (et_number) for record tracking
-
-    Rows with 'Recheck' or missing outcome are excluded.
+    Outcome/result columns are used only to construct the label and are never
+    returned as model features.
     """
     raw = load_raw_csv(csv_path)
+    rename = {column: _COL_MAP[column.strip()] for column in raw.columns if column.strip() in _COL_MAP}
+    df = raw.rename(columns=rename).replace(r"^\s*[.\-]?\s*$", np.nan, regex=True)
 
-    # Rename columns to canonical names
-    rename_map = {}
-    for raw_col in raw.columns:
-        canonical = _COL_MAP.get(raw_col.strip())
-        if canonical:
-            rename_map[raw_col] = canonical
-    df = raw.rename(columns=rename_map)
+    for column in ("et_date", "opu_date"):
+        if column not in df:
+            df[column] = pd.NaT
+        df[column] = pd.to_datetime(df[column], errors="coerce")
 
-    # Clean sentinel values
-    for col in df.columns:
-        df[col] = df[col].apply(_clean_dot)
-
-    # Parse dates
-    df["et_date"] = df["et_date"].apply(_parse_date)
-    df["opu_date"] = df["opu_date"].apply(_parse_date)
-
-    # Normalize categoricals
-    df["cl_side"] = df["cl_side"].apply(_normalize_cl_side)
-    df["semen_type"] = df["semen_type"].apply(_normalize_semen_type)
-    df["pc1_result"] = df["pc1_result"].apply(_normalize_pc_result)
-
-    # Numeric conversions
-    for col in NUMERIC_FEATURES:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-
-    # Derived features
-    if "opu_date" in df.columns and "et_date" in df.columns:
-        df["days_opu_to_et"] = (df["et_date"] - df["opu_date"]).dt.days
+    if "target_pregnant" in df:
+        target = pd.to_numeric(df["target_pregnant"], errors="coerce")
+    elif "pc1_result" in df:
+        target = _target_from_result(df["pc1_result"])
     else:
-        df["days_opu_to_et"] = np.nan
+        raise ValueError("Dataset has neither target_pregnant nor 1st PC Result")
+    df[TARGET_COL] = target
+    df = df[df[TARGET_COL].isin([0, 1]) & df["et_date"].notna()].copy()
+    df[TARGET_COL] = df[TARGET_COL].astype(int)
 
-    # Ensure bc_score exists even when source CSV only has BCScore.
-    if "bc_score" not in df.columns:
-        if "bc_score_alt" in df.columns:
-            df["bc_score"] = pd.to_numeric(df["bc_score_alt"], errors="coerce")
-        else:
-            df["bc_score"] = np.nan
+    if "days_opu_to_et" not in df:
+        df["days_opu_to_et"] = (df["et_date"] - df["opu_date"]).dt.days
+    for column in NUMERIC_FEATURES:
+        if column not in df:
+            df[column] = np.nan
+        df[column] = pd.to_numeric(df[column], errors="coerce")
 
-    # Use bc_score_alt as fallback if primary is missing.
-    if "bc_score_alt" in df.columns:
-        mask = df["bc_score"].isna() & df["bc_score_alt"].notna()
-        df.loc[mask, "bc_score"] = pd.to_numeric(
-            df.loc[mask, "bc_score_alt"], errors="coerce"
+    for column in CATEGORICAL_FEATURES:
+        if column not in df:
+            df[column] = np.nan
+    if "cl_side" in df:
+        cl = df["cl_side"].astype("string").str.strip().str.title()
+        df["cl_side"] = cl.where(cl.isin(["Left", "Right"]))
+    if "semen_type" in df:
+        df["semen_type"] = df["semen_type"].apply(
+            lambda value: "Sexed" if pd.notna(value) and re.search(r"pre.?sort", str(value), re.I) else value
         )
 
-    # BC missing flag
     df["bc_missing"] = df["bc_score"].isna().astype(int)
+    if "donor_tag" not in df:
+        df["donor_tag"] = "UNKNOWN"
+    if "et_number" not in df:
+        df["et_number"] = df.index.astype(str)
 
-    # Binary target: Pregnant=1, Open=0; exclude Recheck and missing
-    df = df[df["pc1_result"].isin(["Pregnant", "Open"])].copy()
-    df[TARGET_COL] = (df["pc1_result"] == "Pregnant").astype(int)
-
-    # Keep needed columns
-    keep_cols = (
-        NUMERIC_FEATURES
-        + CATEGORICAL_FEATURES
-        + ["bc_missing", TARGET_COL, "donor_tag", "et_date", "et_number"]
-    )
-    keep_cols = [c for c in keep_cols if c in df.columns]
-    df = df[keep_cols].reset_index(drop=True)
-
-    return df
+    columns = NUMERIC_FEATURES + CATEGORICAL_FEATURES + [
+        "bc_missing", TARGET_COL, "donor_tag", "et_date", "et_number"
+    ]
+    return df[columns].reset_index(drop=True)
 
 
-def preprocess_for_model(
-    df: pd.DataFrame,
-    fit: bool = True,
-    encoder_map: dict | None = None,
-) -> tuple[np.ndarray, np.ndarray, list[str], dict]:
-    """Convert feature DataFrame to numpy arrays ready for sklearn.
-
-    Parameters
-    ----------
-    df : DataFrame with features + target
-    fit : if True, compute encoding mappings; if False, use encoder_map
-    encoder_map : pre-computed encoding mappings (for inference)
-
-    Returns
-    -------
-    X : feature array (n_samples, n_features)
-    y : target array (n_samples,)
-    feature_names : list of feature column names after encoding
-    encoder_map : encoding mappings for reuse at inference
-    """
-    if encoder_map is None:
-        encoder_map = {}
-
-    df = df.copy()
-    feature_cols = []
-
-    # Numeric features: impute median
-    for col in NUMERIC_FEATURES:
-        if col not in df.columns:
-            df[col] = np.nan
+def preprocess_for_model(df, fit=True, encoder_map=None):
+    """Median-impute numeric values and one-hot encode categoricals."""
+    encoder_map = {} if encoder_map is None else encoder_map
+    frame = df.copy()
+    feature_names = []
+    for column in NUMERIC_FEATURES:
+        values = pd.to_numeric(frame.get(column, np.nan), errors="coerce")
+        median = float(values.median()) if fit and pd.notna(values.median()) else float(encoder_map.get(f"{column}_median", 0.0))
         if fit:
-            median_val = df[col].median()
-            if pd.isna(median_val):
-                median_val = 0.0
-            encoder_map[f"{col}_median"] = median_val
-        else:
-            median_val = encoder_map.get(f"{col}_median", 0.0)
-            if pd.isna(median_val):
-                median_val = 0.0
-        df[col] = df[col].fillna(median_val)
-        feature_cols.append(col)
+            encoder_map[f"{column}_median"] = median
+        frame[column] = values.fillna(median)
+        feature_names.append(column)
 
-    # Binary flags
-    if "bc_missing" in df.columns:
-        feature_cols.append("bc_missing")
-    else:
-        df["bc_missing"] = 0
-        feature_cols.append("bc_missing")
-
-    # Categorical features: one-hot encoding
-    for col in CATEGORICAL_FEATURES:
-        if col not in df.columns:
-            df[col] = "Unknown"
-        df[col] = df[col].fillna("Unknown").astype(str)
-
+    frame["bc_missing"] = pd.to_numeric(frame.get("bc_missing", 0), errors="coerce").fillna(0)
+    feature_names.append("bc_missing")
+    for column in CATEGORICAL_FEATURES:
+        values = frame[column] if column in frame else pd.Series("Unknown", index=frame.index)
+        values = values.fillna("Unknown").astype(str)
+        categories = sorted(values.unique()) if fit else encoder_map.get(f"{column}_categories", [])
         if fit:
-            categories = sorted(df[col].unique().tolist())
-            encoder_map[f"{col}_categories"] = categories
-        else:
-            categories = encoder_map.get(f"{col}_categories", [])
+            encoder_map[f"{column}_categories"] = categories
+        for category in categories:
+            name = f"{column}__{category}"
+            frame[name] = (values == category).astype(int)
+            feature_names.append(name)
 
-        for cat in categories:
-            ohe_col = f"{col}__{cat}"
-            df[ohe_col] = (df[col] == cat).astype(int)
-            feature_cols.append(ohe_col)
-
-    X = df[feature_cols].values.astype(np.float64)
-    y = df[TARGET_COL].values.astype(int) if TARGET_COL in df.columns else np.zeros(len(df))
-    return X, y, feature_cols, encoder_map
+    X = frame[feature_names].to_numpy(dtype=np.float64)
+    y = frame[TARGET_COL].to_numpy(dtype=int) if TARGET_COL in frame else np.zeros(len(frame), dtype=int)
+    return X, y, feature_names, encoder_map

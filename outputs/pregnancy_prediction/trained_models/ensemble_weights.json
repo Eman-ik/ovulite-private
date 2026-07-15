@@ -1,0 +1,13 @@
+{
+  "models": [
+    "logistic",
+    "catboost",
+    "xgboost"
+  ],
+  "weights": {
+    "logistic": 0.3333333333333333,
+    "catboost": 0.3333333333333333,
+    "xgboost": 0.3333333333333333
+  },
+  "decision_threshold": 0.2
+}

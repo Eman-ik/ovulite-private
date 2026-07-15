@@ -12,6 +12,7 @@ class UserCreate(BaseModel):
     username: str
     password: str
     role: str = "viewer"
+    organization_id: Optional[int] = None
     full_name: Optional[str] = None
     email: Optional[EmailStr] = None
 
@@ -20,6 +21,7 @@ class UserResponse(BaseModel):
     """Public user data returned by the API (never includes password_hash)."""
 
     user_id: int
+    organization_id: Optional[int] = None
     username: str
     role: Optional[str]
     full_name: Optional[str]

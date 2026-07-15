@@ -14,6 +14,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.models.mixins import OrganizationScopedMixin
 
 if TYPE_CHECKING:
     from app.models.embryo import Embryo
@@ -24,7 +25,7 @@ if TYPE_CHECKING:
     from app.models.technician import Technician
 
 
-class ETTransfer(Base):
+class ETTransfer(OrganizationScopedMixin, Base):
     __tablename__ = "et_transfers"
 
     transfer_id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)

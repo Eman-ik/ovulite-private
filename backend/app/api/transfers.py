@@ -27,9 +27,23 @@ from app.schemas.et_transfer import (
 router = APIRouter()
 
 
+def _clean_pregnancy_result(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip().lower()
+    if normalized in {"pregnant", "p", "positive"}:
+        return "Pregnant"
+    if normalized in {"open", "o", "negative"}:
+        return "Open"
+    if normalized in {"recheck", "pending"}:
+        return "Recheck"
+    return None
+
+
 def _build_detail(t: ETTransfer) -> dict:
     """Build ETTransferDetail dict with joined entity names."""
     d = {c.name: getattr(t, c.name) for c in t.__table__.columns}
+    d["pc1_result"] = _clean_pregnancy_result(t.pc1_result)
     d["donor_tag"] = t.embryo.donor.tag_id if t.embryo and t.embryo.donor else None
     d["donor_breed"] = t.embryo.donor.breed if t.embryo and t.embryo.donor else None
     d["sire_name"] = t.embryo.sire.name if t.embryo and t.embryo.sire else None

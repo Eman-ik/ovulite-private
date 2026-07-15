@@ -1,0 +1,26 @@
+{
+  "config": {
+    "output_dir": "outputs\\pregnancy_prediction",
+    "cutoff": "2025-12-01",
+    "folds": 5,
+    "seed": 42,
+    "calibration": "sigmoid"
+  },
+  "training_rows": 311,
+  "holdout_rows": 165,
+  "donor_groups": 34,
+  "folds": 5,
+  "models": [
+    "logistic",
+    "catboost",
+    "xgboost"
+  ],
+  "ensemble_weights": {
+    "logistic": 0.3333333333333333,
+    "catboost": 0.3333333333333333,
+    "xgboost": 0.3333333333333333
+  },
+  "decision_threshold": 0.2,
+  "champion_by_oof_brier": "xgboost",
+  "holdout_is_reporting_only": true
+}

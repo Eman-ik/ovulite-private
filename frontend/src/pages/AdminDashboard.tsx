@@ -237,6 +237,8 @@ function buildRecords(content: string): RawRecord[] {
   return records;
 }
 
+void buildRecords;
+
 function filterRecords(records: RawRecord[], timePeriod: TimePeriod, search: string): RawRecord[] {
   const query = search.trim().toLowerCase();
   const dated = records

@@ -18,12 +18,39 @@ from app.auth.security import (
 )
 from app.database import get_db
 from app.models.user import User
+from app.models.organization import Organization, OrganizationMembership
+from app.schemas.organization import OrganizationRegistrationRequest, OrganizationRegistrationResponse
 from app.schemas.auth import TokenResponse, RefreshTokenRequest
 from app.schemas.user import UserCreate, UserResponse
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def ensure_default_organization(db: Session) -> Organization:
+    """Create the default bootstrap organization if it does not exist."""
+    organization = (
+        db.query(Organization)
+        .filter(func.lower(Organization.slug) == "ovulite-default")
+        .first()
+    )
+    if organization:
+        return organization
+
+    organization = Organization(
+        name="Ovulite Default Organization",
+        slug="ovulite-default",
+        organization_type="lab",
+        country="PK",
+        time_zone="Asia/Karachi",
+        primary_species="Cattle",
+    )
+    db.add(organization)
+    db.commit()
+    db.refresh(organization)
+    logger.info("Default organization seeded")
+    return organization
 
 
 def ensure_default_admin(db: Session) -> bool:
@@ -35,7 +62,10 @@ def ensure_default_admin(db: Session) -> bool:
     if user_count > 0:
         return False
 
+    organization = ensure_default_organization(db)
+
     admin = User(
+        organization_id=organization.organization_id,
         username="admin",
         password_hash=hash_password("ovulite2026"),
         role="admin",
@@ -44,6 +74,17 @@ def ensure_default_admin(db: Session) -> bool:
     db.add(admin)
     db.commit()
     db.refresh(admin)
+
+    membership = OrganizationMembership(
+        organization_id=organization.organization_id,
+        user_id=admin.user_id,
+        role="admin",
+        status="active",
+        is_primary=True,
+    )
+    db.add(membership)
+    db.commit()
+
     logger.info("Default admin user seeded")
     return True
 
@@ -86,15 +127,16 @@ def login(
     db.commit()
 
     access_token = create_access_token(
-        data={"sub": user.username, "role": user.role}
+        data={"sub": user.username, "role": user.role, "org_id": user.organization_id}
     )
     refresh_token = create_refresh_token(
-        data={"sub": user.username}
+        data={"sub": user.username, "org_id": user.organization_id}
     )
     logger.info("User '%s' logged in successfully", user.username)
     return TokenResponse(
         access_token=access_token,
         refresh_token=refresh_token,
+        organization_id=user.organization_id,
     )
 
 
@@ -128,13 +170,14 @@ def refresh_access_token(
         
         # Create new access token
         new_access_token = create_access_token(
-            data={"sub": user.username, "role": user.role}
+            data={"sub": user.username, "role": user.role, "org_id": user.organization_id}
         )
         
         logger.info("Refreshed access token for user '%s'", user.username)
         return TokenResponse(
             access_token=new_access_token,
             refresh_token=payload.refresh_token,  # Return same refresh token
+            organization_id=user.organization_id,
         )
     except HTTPException:
         raise
@@ -162,7 +205,19 @@ def register(
             detail=f"Username '{payload.username}' already exists",
         )
 
+    organization_id = payload.organization_id
+    if organization_id is None:
+        organization_id = ensure_default_organization(db).organization_id
+    else:
+        organization = db.query(Organization).filter(Organization.organization_id == organization_id).first()
+        if organization is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Organization '{organization_id}' not found",
+            )
+
     user = User(
+        organization_id=organization_id,
         username=payload.username,
         password_hash=hash_password(payload.password),
         role=payload.role,
@@ -172,6 +227,17 @@ def register(
     db.add(user)
     db.commit()
     db.refresh(user)
+
+    membership = OrganizationMembership(
+        organization_id=organization_id,
+        user_id=user.user_id,
+        role=payload.role,
+        status="active",
+        is_primary=False,
+    )
+    db.add(membership)
+    db.commit()
+
     logger.info("User '%s' registered with role '%s'", user.username, user.role)
     return user
 
@@ -196,4 +262,84 @@ def seed_admin(db: Session = Depends(get_db)) -> User:
         )
 
     return db.query(User).filter(func.lower(User.username) == "admin").first()
+
+
+@router.post(
+    "/register-organization",
+    response_model=OrganizationRegistrationResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def register_organization(
+    payload: OrganizationRegistrationRequest,
+    db: Session = Depends(get_db),
+) -> OrganizationRegistrationResponse:
+    """Create a new organization and its first admin user."""
+    org_exists = (
+        db.query(Organization)
+        .filter(
+            or_(
+                func.lower(Organization.name) == func.lower(payload.organization.name),
+                func.lower(Organization.slug) == func.lower(payload.organization.slug),
+            )
+        )
+        .first()
+    )
+    if org_exists:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Organization already exists",
+        )
+
+    user_filters = [func.lower(User.username) == func.lower(payload.admin_username)]
+    if payload.admin_email:
+        user_filters.append(func.lower(User.email) == func.lower(payload.admin_email))
+    user_exists = db.query(User).filter(or_(*user_filters)).first()
+    if user_exists:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Admin username or email already exists",
+        )
+
+    organization = Organization(**payload.organization.model_dump())
+    db.add(organization)
+    db.commit()
+    db.refresh(organization)
+
+    user = User(
+        organization_id=organization.organization_id,
+        username=payload.admin_username,
+        password_hash=hash_password(payload.admin_password),
+        role="admin",
+        full_name=payload.admin_full_name,
+        email=payload.admin_email,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    membership = OrganizationMembership(
+        organization_id=organization.organization_id,
+        user_id=user.user_id,
+        role="admin",
+        status="active",
+        is_primary=True,
+    )
+    db.add(membership)
+    db.commit()
+
+    access_token = create_access_token(
+        data={"sub": user.username, "role": user.role, "org_id": user.organization_id}
+    )
+    refresh_token = create_refresh_token(
+        data={"sub": user.username, "org_id": user.organization_id}
+    )
+
+    return OrganizationRegistrationResponse(
+        organization=organization,
+        user_id=user.user_id,
+        username=user.username,
+        role=user.role or "admin",
+        access_token=access_token,
+        refresh_token=refresh_token,
+    )
 

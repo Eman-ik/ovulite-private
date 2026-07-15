@@ -6,6 +6,8 @@ with uncertainty estimates and SHAP explanations.
 
 import logging
 import sys
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -20,7 +22,9 @@ from app.schemas.prediction import (
     PredictionHistoryItem,
     PredictionHistoryResponse,
     PredictionInput,
+    PredictionOutcomeInput,
     PredictionOutput,
+    PredictionSelectionInput,
     ShapContribution,
     ShapExplanation,
 )
@@ -83,10 +87,25 @@ def predict_pregnancy(
         base_value=shap_raw.get("base_value", 0),
         contributions=contributions,
     )
+    request_id = str(uuid.uuid4())
+    created_at = datetime.now(timezone.utc)
+    positive = [feat for feat, value in shap_raw.get("contributions", []) if value > 0][:3]
+    negative = [feat for feat, value in shap_raw.get("contributions", []) if value < 0][:3]
+    summary = (
+        f"Estimated pregnancy probability is {result['probability_percent']:.1f}% "
+        f"({result['risk_band']} band, {result['uncertainty_level'].lower()} uncertainty)."
+    )
+    if result.get("is_ood"):
+        summary += " This case is outside the model's usual training experience and should be interpreted with extra caution."
+    if positive:
+        summary += f" Supporting factors include {', '.join(positive)}."
+    if negative:
+        summary += f" Factors reducing the estimate include {', '.join(negative)}."
 
     # Persist prediction to DB
     prediction_record = Prediction(
         transfer_id=input_data.transfer_id,
+        organization_id=current_user.organization_id,
         model_name=result["model_name"],
         model_version=result["model_version"],
         probability=result["probability"],
@@ -97,6 +116,14 @@ def predict_pregnancy(
             "base_value": shap_raw.get("base_value", 0),
             "contributions": shap_raw.get("contributions", []),
         },
+        feature_snapshot=features,
+        feature_schema_version=result["feature_schema_version"],
+        request_id=request_id,
+        uncertainty_level=result["uncertainty_level"],
+        is_ood=result["is_ood"],
+        ood_reasons=result["ood_reasons"],
+        similar_cases=result["similar_cases"],
+        plain_language_summary=summary,
     )
     db.add(prediction_record)
     db.commit()
@@ -104,9 +131,18 @@ def predict_pregnancy(
 
     return PredictionOutput(
         probability=result["probability"],
+        probability_percent=result["probability_percent"],
         confidence_lower=result["confidence_lower"],
         confidence_upper=result["confidence_upper"],
         risk_band=result["risk_band"],
+        uncertainty_level=result["uncertainty_level"],
+        is_ood=result["is_ood"],
+        ood_reasons=result["ood_reasons"],
+        similar_cases=result["similar_cases"],
+        plain_language_summary=summary,
+        feature_schema_version=result["feature_schema_version"],
+        request_id=request_id,
+        created_at=created_at,
         model_name=result["model_name"],
         model_version=result["model_version"],
         shap_explanation=shap_explanation,
@@ -125,6 +161,8 @@ def get_model_info(current_user: User = Depends(get_current_user)):
         model_version=predictor.version,
         n_features=len(predictor.feature_names),
         best_model_key=metadata.get("best_model", "unknown"),
+        feature_schema_version=metadata.get("feature_schema_version", "unknown"),
+        artifact_integrity_verified=(predictor.artifact_dir / "manifest.json").exists(),
         training_split=metadata.get("split", {}),
         top_features=metadata.get("shap_top_features", []),
     )
@@ -138,7 +176,7 @@ def get_prediction_history(
     current_user: User = Depends(get_current_user),
 ):
     """Retrieve prediction history, optionally filtered by transfer_id."""
-    query = db.query(Prediction)
+    query = db.query(Prediction).filter(Prediction.organization_id == current_user.organization_id)
     
     if transfer_id is not None:
         query = query.filter(Prediction.transfer_id == transfer_id)
@@ -165,9 +203,43 @@ def get_prediction_history(
             risk_band=pred.risk_band,
             predicted_at=pred.predicted_at,
             shap_json=pred.shap_json,
+            request_id=pred.request_id,
+            uncertainty_level=pred.uncertainty_level,
+            is_ood=pred.is_ood,
+            selected_for_case=pred.selected_for_case,
+            actual_outcome=pred.actual_outcome,
         )
         for pred in predictions
     ]
     
     return PredictionHistoryResponse(predictions=items, total=total)
+
+
+def _owned_prediction(prediction_id: int, db: Session, user: User) -> Prediction:
+    prediction = db.query(Prediction).filter(
+        Prediction.prediction_id == prediction_id,
+        Prediction.organization_id == user.organization_id,
+    ).first()
+    if prediction is None:
+        raise HTTPException(status_code=404, detail="Prediction not found")
+    return prediction
+
+
+@router.patch("/{prediction_id}/selection", response_model=PredictionHistoryItem)
+def select_prediction(prediction_id: int, payload: PredictionSelectionInput, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    prediction = _owned_prediction(prediction_id, db, current_user)
+    prediction.selected_for_case = payload.selected
+    db.commit()
+    db.refresh(prediction)
+    return PredictionHistoryItem.model_validate(prediction, from_attributes=True)
+
+
+@router.patch("/{prediction_id}/outcome", response_model=PredictionHistoryItem)
+def record_prediction_outcome(prediction_id: int, payload: PredictionOutcomeInput, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    prediction = _owned_prediction(prediction_id, db, current_user)
+    prediction.actual_outcome = payload.actual_outcome
+    prediction.actual_outcome_recorded_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(prediction)
+    return PredictionHistoryItem.model_validate(prediction, from_attributes=True)
 

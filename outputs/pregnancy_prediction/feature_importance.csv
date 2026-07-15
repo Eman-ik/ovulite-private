@@ -1,0 +1,109 @@
+model,feature,importance_type,raw_importance,normalized_importance,sign
+logistic,categorical__technician_name_Yaseen,coefficient,0.7876752152480184,0.13464902445408314,1
+logistic,categorical__technician_name_Masroor,coefficient,-0.7479470049740673,0.12785769136001107,-1
+logistic,categorical__donor_breed_Beef crossbred,coefficient,-0.4981267768114373,0.08515220899898128,-1
+logistic,categorical__technician_name_Ruben,coefficient,0.37274828077611544,0.06371940033385083,1
+logistic,numeric__days_opu_to_et,coefficient,-0.31540558664737384,0.053916961873764525,-1
+logistic,numeric__embryo_stage,coefficient,0.2846747238938903,0.04866367903549982,1
+logistic,categorical__protocol_name_CIDR+GnRH+PGF+GnRH,coefficient,-0.25878783968173,0.04423844940043297,-1
+logistic,categorical__technician_name_Hamid,coefficient,-0.25443424138292325,0.04349422417606215,-1
+logistic,numeric__et_month_number,coefficient,0.23782424042756659,0.04065482999236178,1
+logistic,categorical__donor_breed_Red Brahman,coefficient,0.23321246887000366,0.039866471378036956,1
+logistic,categorical__protocol_name_CIDR+Estradiol+PGF+GnRH,coefficient,0.21848060438081815,0.03734813495782347,1
+logistic,categorical__customer_id_Maidan Cattle (Karachi),coefficient,0.20230766746635664,0.03458345462266277,1
+logistic,numeric__heat_day,coefficient,-0.19775374112176208,0.03380498434980756,-1
+logistic,categorical__donor_breed_Braford,coefficient,0.1776790695363151,0.030373322552038007,1
+logistic,categorical__donor_breed_Nukra,coefficient,0.17212154397031532,0.029423292157080266,1
+logistic,numeric__cl_measure_mm,coefficient,0.13669814293725746,0.023367844049010576,1
+logistic,categorical__fresh_or_frozen_Fresh,coefficient,-0.13133373477321314,0.022450826080082035,-1
+logistic,categorical__fresh_or_frozen_Frozen,coefficient,0.1262424453510413,0.021580496354532686,1
+logistic,categorical__donor_breed_Beef Master,coefficient,-0.10977696605985177,0.018765807405573588,-1
+logistic,numeric__et_dayofweek,coefficient,0.08396523320599182,0.014353424508458695,1
+logistic,categorical__customer_id_Model Cattle (Karachi),coefficient,-0.07299917023558773,0.012478832478034045,-1
+logistic,categorical__technician_name_Fakhar,coefficient,-0.052099946368918314,0.008906217711161568,-1
+logistic,categorical__donor_breed_Grey Brahman,coefficient,-0.04721959256927645,0.008071946344751188,-1
+logistic,numeric__et_quarter,coefficient,-0.03514013176586527,0.006007024684624415,-1
+logistic,numeric__donor_bw_epd,coefficient,-0.027993717179771203,0.004785381888539983,-1
+logistic,categorical__customer_id_DZF,coefficient,-0.023380447589683696,0.003996767193264367,-1
+logistic,numeric__sire_bw_epd,coefficient,-0.020037251554636388,0.0034252650360762226,-1
+logistic,categorical__cl_side_Right,coefficient,-0.014424384918228821,0.0024657743699325906,-1
+logistic,categorical__cl_side_Left,coefficient,0.009349578057636029,0.0015982622534614019,1
+logistic,numeric__embryo_grade,coefficient,0.0,0.0,0
+logistic,numeric__bc_score,coefficient,0.0,0.0,0
+logistic,categorical__protocol_name_CIDR+E2+PGF+ECG,coefficient,0.0,0.0,0
+logistic,categorical__protocol_name_Natural heat,coefficient,0.0,0.0,0
+logistic,categorical__donor_breed_Angus,coefficient,0.0,0.0,0
+logistic,categorical__semen_type_Conventional,coefficient,0.0,0.0,0
+logistic,categorical__semen_type_Sexed Female,coefficient,0.0,0.0,0
+catboost,numeric__cl_measure_mm,gain,34.493938082004604,0.34493938082004605,1
+catboost,numeric__et_month_number,gain,9.899486666351004,0.09899486666351004,1
+catboost,numeric__donor_bw_epd,gain,9.430084950027284,0.09430084950027284,1
+catboost,numeric__embryo_stage,gain,8.033535327167387,0.08033535327167388,1
+catboost,numeric__et_dayofweek,gain,7.187663950112748,0.07187663950112748,1
+catboost,numeric__sire_bw_epd,gain,3.585833027962811,0.035858330279628106,1
+catboost,numeric__days_opu_to_et,gain,2.7629088099967882,0.02762908809996788,1
+catboost,categorical__technician_name_Masroor,gain,2.607133944824266,0.02607133944824266,1
+catboost,categorical__cl_side_Left,gain,2.2960940665938026,0.022960940665938026,1
+catboost,categorical__donor_breed_Grey Brahman,gain,2.1594681761517007,0.021594681761517007,1
+catboost,categorical__donor_breed_Beef crossbred,gain,1.8477488540885483,0.018477488540885482,1
+catboost,categorical__technician_name_Yaseen,gain,1.6839765208456299,0.0168397652084563,1
+catboost,numeric__et_quarter,gain,1.6568049639195972,0.016568049639195972,1
+catboost,categorical__donor_breed_Nukra,gain,1.5884907543007856,0.015884907543007854,1
+catboost,categorical__cl_side_Right,gain,1.2682252380494774,0.012682252380494774,1
+catboost,categorical__protocol_name_CIDR+GnRH+PGF+GnRH,gain,1.2036133687178454,0.012036133687178454,1
+catboost,categorical__semen_type_Conventional,gain,0.9219019466517487,0.009219019466517488,1
+catboost,categorical__protocol_name_Natural heat,gain,0.8830442933778396,0.008830442933778396,1
+catboost,categorical__technician_name_Ruben,gain,0.7556384865576414,0.0075563848655764146,1
+catboost,categorical__technician_name_Hamid,gain,0.6354402773608744,0.006354402773608744,1
+catboost,categorical__donor_breed_Red Brahman,gain,0.5683024869641307,0.005683024869641307,1
+catboost,categorical__donor_breed_Angus,gain,0.5656193733659879,0.005656193733659879,1
+catboost,categorical__protocol_name_CIDR+Estradiol+PGF+GnRH,gain,0.562246903003053,0.00562246903003053,1
+catboost,categorical__protocol_name_CIDR+E2+PGF+ECG,gain,0.5505673551104772,0.005505673551104772,1
+catboost,categorical__semen_type_Sexed Female,gain,0.5092706155194139,0.005092706155194139,1
+catboost,categorical__fresh_or_frozen_Frozen,gain,0.500538728661753,0.00500538728661753,1
+catboost,numeric__heat_day,gain,0.46749485697363935,0.004674948569736393,1
+catboost,categorical__donor_breed_Braford,gain,0.3952530079400942,0.0039525300794009425,1
+catboost,categorical__fresh_or_frozen_Fresh,gain,0.27735852021248725,0.0027735852021248727,1
+catboost,categorical__customer_id_DZF,gain,0.2312961903551746,0.002312961903551746,1
+catboost,categorical__donor_breed_Beef Master,gain,0.15918365074367347,0.0015918365074367347,1
+catboost,categorical__customer_id_Maidan Cattle (Karachi),gain,0.15446069015184014,0.0015446069015184014,1
+catboost,categorical__customer_id_Model Cattle (Karachi),gain,0.13227131326676184,0.0013227131326676183,1
+catboost,categorical__technician_name_Fakhar,gain,0.02510460266913379,0.0002510460266913379,1
+catboost,numeric__embryo_grade,gain,0.0,0.0,0
+catboost,numeric__bc_score,gain,0.0,0.0,0
+xgboost,categorical__technician_name_Masroor,gain,0.105610691010952,0.10561069219124346,1
+xgboost,numeric__et_month_number,gain,0.059371430426836014,0.05937143109036346,1
+xgboost,numeric__embryo_stage,gain,0.056835073977708817,0.05683507461289027,1
+xgboost,categorical__fresh_or_frozen_Frozen,gain,0.056151244789361954,0.05615124541690102,1
+xgboost,categorical__technician_name_Ruben,gain,0.05210644751787186,0.052106448100206794,1
+xgboost,numeric__cl_measure_mm,gain,0.049817830324172974,0.04981783088093062,1
+xgboost,categorical__donor_breed_Beef crossbred,gain,0.04943123459815979,0.04943123515059689,1
+xgboost,numeric__days_opu_to_et,gain,0.04780424386262894,0.047804244396883,1
+xgboost,categorical__fresh_or_frozen_Fresh,gain,0.043966490775346756,0.04396649126671059,1
+xgboost,categorical__technician_name_Yaseen,gain,0.04258507117629051,0.04258507165221578,1
+xgboost,categorical__donor_breed_Grey Brahman,gain,0.04182770103216171,0.041827701499622706,1
+xgboost,categorical__protocol_name_CIDR+Estradiol+PGF+GnRH,gain,0.040570374578237534,0.04057037503164681,1
+xgboost,numeric__et_dayofweek,gain,0.03875209763646126,0.038752098069549705,1
+xgboost,categorical__donor_breed_Nukra,gain,0.03796001151204109,0.03796001193627729,1
+xgboost,numeric__donor_bw_epd,gain,0.03639388456940651,0.03639388497613987,1
+xgboost,numeric__sire_bw_epd,gain,0.03550882637500763,0.035508826771849696,1
+xgboost,categorical__protocol_name_CIDR+GnRH+PGF+GnRH,gain,0.032937537878751755,0.03293753824685743,1
+xgboost,categorical__donor_breed_Red Brahman,gain,0.03108878992497921,0.031088790272423516,1
+xgboost,numeric__et_quarter,gain,0.02762601152062416,0.027626011829368902,1
+xgboost,categorical__cl_side_Left,gain,0.02711368538439274,0.02711368568741179,1
+xgboost,categorical__semen_type_Sexed Female,gain,0.02473454549908638,0.02473454577551647,1
+xgboost,categorical__cl_side_Right,gain,0.02337060682475567,0.023370607085942557,1
+xgboost,categorical__semen_type_Conventional,gain,0.02153799682855606,0.021537997069261936,1
+xgboost,categorical__protocol_name_CIDR+E2+PGF+ECG,gain,0.01689816080033779,0.01689816098918946,1
+xgboost,numeric__heat_day,gain,0.0,0.0,0
+xgboost,numeric__embryo_grade,gain,0.0,0.0,0
+xgboost,numeric__bc_score,gain,0.0,0.0,0
+xgboost,categorical__protocol_name_Natural heat,gain,0.0,0.0,0
+xgboost,categorical__technician_name_Fakhar,gain,0.0,0.0,0
+xgboost,categorical__donor_breed_Beef Master,gain,0.0,0.0,0
+xgboost,categorical__donor_breed_Angus,gain,0.0,0.0,0
+xgboost,categorical__technician_name_Hamid,gain,0.0,0.0,0
+xgboost,categorical__donor_breed_Braford,gain,0.0,0.0,0
+xgboost,categorical__customer_id_DZF,gain,0.0,0.0,0
+xgboost,categorical__customer_id_Maidan Cattle (Karachi),gain,0.0,0.0,0
+xgboost,categorical__customer_id_Model Cattle (Karachi),gain,0.0,0.0,0

@@ -5,12 +5,13 @@ from sqlalchemy import ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.models.mixins import OrganizationScopedMixin
 
 if TYPE_CHECKING:
     from app.models.embryo import Embryo
 
 
-class EmbryoImage(Base):
+class EmbryoImage(OrganizationScopedMixin, Base):
     __tablename__ = "embryo_images"
 
     image_id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)

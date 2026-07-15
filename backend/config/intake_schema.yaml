@@ -1,0 +1,45 @@
+version: "1.0"
+primary_key: et_number
+columns:
+  et_number:
+    source_names: ["# ET", "ET Number", "et_number"]
+    type: integer
+    required: true
+  et_date:
+    source_names: ["ET Date", "transfer_date", "et_date"]
+    type: date
+    required: true
+  recipient_id:
+    source_names: ["Recipient ID", "Recipient ID.1", "patient_id", "recipient_id"]
+    type: string
+    required: true
+  embryo_stage:
+    source_names: ["Embryo Stage 4-8", "embryo_stage"]
+    type: integer
+    required: true
+    min: 4
+    max: 8
+  embryo_grade:
+    source_names: ["Embryo Grade", "embryo_grade"]
+    type: integer
+    required: true
+    min: 1
+    max: 4
+  cl_side:
+    source_names: ["CL Side", "cl_side"]
+    type: category
+    required: false
+    allowed_values: ["Left", "Right", "left", "right"]
+  first_pregnancy_check_result:
+    source_names: ["1st PC Result", "pregnancy_result", "first_pregnancy_check_result"]
+    type: category
+    required: false
+    allowed_values: ["Pregnant", "Open", "Recheck", "P", "O", "Positive", "Negative", "Pending"]
+  second_pregnancy_check_result:
+    source_names: ["2nd PC Result", "second_pregnancy_check_result"]
+    type: category
+    required: false
+  fetal_sexing:
+    source_names: ["Fetal Sexing", "fetal_sexing"]
+    type: category
+    required: false

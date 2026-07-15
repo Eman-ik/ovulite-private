@@ -6,7 +6,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 ML_DIR = Path(__file__).resolve().parent
 ARTIFACTS_DIR = ML_DIR / "artifacts"
-DATA_CSV = PROJECT_ROOT / "docs" / "dataset" / "ET Summary - ET Data.csv"
+DATA_CSV = PROJECT_ROOT / "docs" / "dataset" / "ovulite_cleaned_et_data.csv"
 
 # ── Random seed for reproducibility ──────────────────────────
 SEED = 42
@@ -87,22 +87,20 @@ XGBOOST_PARAMS = {
 }
 
 # ── Risk band thresholds ─────────────────────────────────────
-RISK_BANDS = {
-    "Low": (0.0, 0.3),
-    "Medium": (0.3, 0.6),
-    "High": (0.6, 1.0),
-}
+RISK_BANDS = {"low_max": 0.35, "high_min": 0.65}
+FEATURE_SCHEMA_VERSION = "pregnancy_features_v1.0"
 
 
-def get_risk_band(probability: float) -> str:
+def get_risk_band(probability: float, thresholds: dict | None = None) -> str:
     """Return risk band using business-rule thresholds.
 
     - High: probability > 0.6
     - Medium: 0.3 <= probability <= 0.6
     - Low: probability < 0.3
     """
-    if probability > 0.6:
+    thresholds = thresholds or RISK_BANDS
+    if probability >= thresholds["high_min"]:
         return "High"
-    if probability >= 0.3:
-        return "Medium"
+    if probability >= thresholds["low_max"]:
+        return "Moderate"
     return "Low"

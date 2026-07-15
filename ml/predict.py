@@ -1,6 +1,7 @@
 """Inference helper — load trained model and predict for new inputs."""
 
 import json
+import hashlib
 import logging
 from pathlib import Path
 
@@ -37,6 +38,7 @@ class PregnancyPredictor:
         # Load metadata to find best model
         with open(self.artifact_dir / "metadata.json") as f:
             self.metadata = json.load(f)
+        self._verify_manifest()
 
         best_key = self.metadata.get("best_model", "logistic")
 
@@ -68,6 +70,21 @@ class PregnancyPredictor:
             logger.warning("No SHAP background found. Contributions may be zero for this version.")
 
         logger.info("Loaded model: %s (version: %s)", self.model_name, self.version)
+
+        reference_path = self.artifact_dir / "reference_cases.joblib"
+        self.reference_cases = joblib.load(reference_path) if reference_path.exists() else None
+
+    def _verify_manifest(self) -> None:
+        path = self.artifact_dir / "manifest.json"
+        if not path.exists():
+            logger.warning("No artifact manifest found for legacy model %s", self.version)
+            return
+        manifest = json.loads(path.read_text())
+        for name, expected in manifest.get("files", {}).items():
+            candidate = self.artifact_dir / name
+            actual = hashlib.sha256(candidate.read_bytes()).hexdigest() if candidate.exists() else None
+            if actual != expected:
+                raise ValueError(f"Artifact integrity check failed for {name}")
 
     @staticmethod
     def _validate_artifact_dir(path: Path) -> None:
@@ -137,23 +154,83 @@ class PregnancyPredictor:
         ci_hi = float(ci_upper[0])
 
         # Risk band
-        band = get_risk_band(prob)
+        band = get_risk_band(prob, self.metadata.get("risk_band_thresholds"))
 
         # SHAP values for this prediction
         shap_dict = self._compute_shap_single(X)
 
+        width = ci_hi - ci_lo
+        ood_reasons = self._ood_reasons(X, features)
         return {
             "probability": round(prob, 4),
             "confidence_lower": round(ci_lo, 4),
             "confidence_upper": round(ci_hi, 4),
             "risk_band": band,
+            "probability_percent": round(prob * 100, 1),
+            "uncertainty_level": "High" if width > self.metadata.get("uncertainty_high_width", 0.30) else ("Moderate" if width > 0.15 else "Low"),
+            "is_ood": bool(ood_reasons),
+            "ood_reasons": ood_reasons,
+            "similar_cases": self._similar_cases(X),
+            "feature_schema_version": self.metadata.get("feature_schema_version", "unknown"),
             "model_name": self.model_name,
             "model_version": self.version,
             "shap_values": shap_dict,
         }
 
+    def _ood_reasons(self, X: np.ndarray, features: dict) -> list[str]:
+        reasons = []
+        if self.reference_cases is not None:
+            ref = np.asarray(self.reference_cases["X"], dtype=float)
+            lower, upper = np.percentile(ref, [1, 99], axis=0)
+            unusual = np.flatnonzero((X[0] < lower) | (X[0] > upper))
+            reasons.extend(f"{self.feature_names[i]} is outside the training reference range" for i in unusual[:5])
+        for name in ("cl_side", "fresh_or_frozen", "semen_type", "protocol_name", "technician_name", "donor_breed"):
+            value = str(features.get(name, "Unknown"))
+            known = self.encoder_map.get(f"{name}_categories", [])
+            if value not in known and value != "Unknown":
+                reasons.append(f"Unseen {name} category: {value}")
+        return reasons
+
+    def _similar_cases(self, X: np.ndarray, limit: int = 5) -> list[dict]:
+        if self.reference_cases is None:
+            return []
+        ref = np.asarray(self.reference_cases["X"], dtype=float)
+        scale = np.std(ref, axis=0)
+        scale[scale == 0] = 1.0
+        distance = np.sqrt(np.mean(((ref - X[0]) / scale) ** 2, axis=1))
+        cases = []
+        for index in np.argsort(distance)[:limit]:
+            row = self.reference_cases["rows"][int(index)]
+            cases.append({"transfer_reference": row["et_number"], "et_date": row["et_date"], "outcome": int(self.reference_cases["y"][index]), "distance": round(float(distance[index]), 4)})
+        return cases
+
     def _compute_shap_single(self, X: np.ndarray) -> dict:
         """Compute SHAP contribution for a single prediction."""
+        # The deployed calibrated logistic model already provides a stable,
+        # validated linear explanation surrogate. Using its coefficients keeps
+        # online inference fast; generic permutation SHAP takes 20-30 seconds
+        # per request on the supported farm hardware.
+        calibrated = getattr(self.model, "calibrated_classifiers_", None)
+        if calibrated:
+            coefficient_rows = []
+            for classifier in calibrated:
+                estimator = getattr(classifier, "estimator", None)
+                if estimator is not None and hasattr(estimator, "coef_"):
+                    coefficient_rows.append(np.asarray(estimator.coef_[0], dtype=float))
+            if coefficient_rows:
+                coefficients = np.mean(coefficient_rows, axis=0)
+                center = np.mean(self.background, axis=0) if self.background is not None else np.zeros(X.shape[1])
+                values = coefficients * (X[0] - center)
+                contributions = sorted(
+                    zip(self.feature_names, values.tolist()),
+                    key=lambda item: abs(item[1]),
+                    reverse=True,
+                )
+                return {
+                    "base_value": float(self.model.predict_proba(center.reshape(1, -1))[0, 1]),
+                    "contributions": contributions[:15],
+                    "method": "calibrated_linear_surrogate",
+                }
         try:
             import shap
 

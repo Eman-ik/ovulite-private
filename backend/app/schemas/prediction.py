@@ -47,16 +47,25 @@ class ShapExplanation(BaseModel):
     """SHAP explanation for a prediction."""
 
     base_value: float = 0.0
-    contributions: list[ShapContribution] = []
+    contributions: list[ShapContribution] = Field(default_factory=list)
 
 
 class PredictionOutput(BaseModel):
     """Prediction result with probability, CI, risk band, and SHAP."""
 
     probability: float = Field(..., description="P(pregnant)")
+    probability_percent: float
     confidence_lower: float = Field(..., description="Lower bound of 95% CI")
     confidence_upper: float = Field(..., description="Upper bound of 95% CI")
-    risk_band: str = Field(..., description="Low / Medium / High")
+    risk_band: str = Field(..., description="Low / Moderate / High")
+    uncertainty_level: str
+    is_ood: bool = False
+    ood_reasons: list[str] = Field(default_factory=list)
+    similar_cases: list[dict] = Field(default_factory=list)
+    plain_language_summary: str
+    feature_schema_version: str
+    request_id: str
+    created_at: datetime
     model_name: str = Field(..., description="Name of model used")
     model_version: str = Field(..., description="Model artifact version")
     shap_explanation: ShapExplanation = Field(
@@ -73,8 +82,10 @@ class ModelInfoResponse(BaseModel):
     model_version: str
     n_features: int
     best_model_key: str
-    training_split: dict = {}
-    top_features: list = []
+    feature_schema_version: str = "unknown"
+    artifact_integrity_verified: bool = False
+    training_split: dict = Field(default_factory=dict)
+    top_features: list = Field(default_factory=list)
 
 
 class PredictionHistoryItem(BaseModel):
@@ -90,6 +101,11 @@ class PredictionHistoryItem(BaseModel):
     risk_band: Optional[str] = None
     predicted_at: datetime
     shap_json: Optional[dict] = None
+    request_id: Optional[str] = None
+    uncertainty_level: Optional[str] = None
+    is_ood: bool = False
+    selected_for_case: bool = False
+    actual_outcome: Optional[str] = None
 
 
 class PredictionHistoryResponse(BaseModel):
@@ -97,6 +113,14 @@ class PredictionHistoryResponse(BaseModel):
 
     predictions: list[PredictionHistoryItem]
     total: int
+
+
+class PredictionOutcomeInput(BaseModel):
+    actual_outcome: str = Field(pattern="^(Pregnant|Open)$")
+
+
+class PredictionSelectionInput(BaseModel):
+    selected: bool = True
 
 
 

@@ -6,6 +6,7 @@ from sqlalchemy import CheckConstraint, Date, ForeignKey, Integer, String, Text,
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.models.mixins import OrganizationScopedMixin
 
 if TYPE_CHECKING:
     from app.models.donor import Donor
@@ -14,7 +15,7 @@ if TYPE_CHECKING:
     from app.models.sire import Sire
 
 
-class Embryo(Base):
+class Embryo(OrganizationScopedMixin, Base):
     __tablename__ = "embryos"
 
     embryo_id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)

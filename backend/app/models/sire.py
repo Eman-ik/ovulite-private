@@ -6,12 +6,13 @@ from sqlalchemy import CheckConstraint, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.models.mixins import OrganizationScopedMixin
 
 if TYPE_CHECKING:
     from app.models.embryo import Embryo
 
 
-class Sire(Base):
+class Sire(OrganizationScopedMixin, Base):
     __tablename__ = "sires"
 
     sire_id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)

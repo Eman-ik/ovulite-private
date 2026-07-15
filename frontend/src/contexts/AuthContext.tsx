@@ -5,6 +5,7 @@ import { getRoleLandingPath } from "@/lib/roleRoutes";
 
 export interface User {
   user_id: number;
+  organization_id: number | null;
   username: string;
   role: string | null;
   full_name: string | null;
@@ -18,6 +19,7 @@ export interface AuthContextType {
   token: string | null;
   isLoading: boolean;
   login: (username: string, password: string) => Promise<void>;
+  loginFromGoogle: (accessToken: string, refreshToken: string) => Promise<void>;
   logout: () => void;
 }
 
@@ -159,6 +161,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [navigate],
   );
 
+  const loginFromGoogle = useCallback(
+    async (accessToken: string, refreshTokenValue: string) => {
+      localStorage.setItem(TOKEN_KEY, accessToken);
+      localStorage.setItem(REFRESH_TOKEN_KEY, refreshTokenValue);
+      setToken(accessToken);
+      setRefreshToken(refreshTokenValue);
+
+      const userRes = await api.get<User>("/auth/me", {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      setUser(userRes.data);
+      navigate(getRoleLandingPath(userRes.data.role));
+    },
+    [navigate],
+  );
+
 
 
   const logout = useCallback(() => {
@@ -171,7 +189,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [navigate]);
 
   return (
-    <AuthContext.Provider value={{ user, token, isLoading, login, logout }}>
+    <AuthContext.Provider value={{ user, token, isLoading, login, loginFromGoogle, logout }}>
       {children}
     </AuthContext.Provider>
   );

@@ -484,7 +484,7 @@ function Logo() {
 /* -----------------------------------------------------------
    HERO — animated SVG biology scene + parallax
    ----------------------------------------------------------- */
-function Hero({ navigate, reduceMotion }: { navigate: (p: string) => void; reduceMotion: boolean }) {
+function Hero({ navigate, reduceMotion: _reduceMotion }: { navigate: (p: string) => void; reduceMotion: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   const { scrollYProgress } = useScroll({ target: ref, offset: ["start start", "end start"] });
   const y1 = useTransform(scrollYProgress, [0, 1], [0, -80]);
@@ -2138,3 +2138,5 @@ function SectionLead({ children }: { children: ReactNode }) {
     </motion.p>
   );
 }
+
+void BiologyScene;

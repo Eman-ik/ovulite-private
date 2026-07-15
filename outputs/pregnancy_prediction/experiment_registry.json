@@ -1,0 +1,46 @@
+{
+  "latest": {
+    "config": {
+      "output_dir": "outputs\\pregnancy_prediction",
+      "cutoff": "2025-12-01",
+      "folds": 5,
+      "seed": 42,
+      "calibration": "sigmoid"
+    },
+    "training_rows": 311,
+    "holdout_rows": 165,
+    "donor_groups": 34,
+    "folds": 5,
+    "models": [
+      "logistic",
+      "catboost",
+      "xgboost"
+    ],
+    "ensemble_weights": {
+      "logistic": 0.3333333333333333,
+      "catboost": 0.3333333333333333,
+      "xgboost": 0.3333333333333333
+    },
+    "decision_threshold": 0.2,
+    "champion_by_oof_brier": "xgboost",
+    "holdout_is_reporting_only": true
+  },
+  "artifacts": [
+    "calibration_report.csv",
+    "data_prep_summary.json",
+    "feature_importance.csv",
+    "fold_assignments.csv",
+    "holdout_predictions.csv",
+    "model_comparison.json",
+    "model_metrics.csv",
+    "oof_predictions.csv",
+    "trained_models\\catboost.joblib",
+    "trained_models\\catboost_sigmoid_calibrator.joblib",
+    "trained_models\\ensemble_weights.json",
+    "trained_models\\logistic.joblib",
+    "trained_models\\logistic_sigmoid_calibrator.joblib",
+    "trained_models\\xgboost.joblib",
+    "trained_models\\xgboost_sigmoid_calibrator.joblib",
+    "uncertainty_report.csv"
+  ]
+}

@@ -14,7 +14,7 @@ from app.models import user
 from app.models.user import User
 from sqlalchemy.orm import sessionmaker
 from app.api.auth import router as auth_router
-from app.api.auth import ensure_default_admin
+from app.api.auth import ensure_default_admin, ensure_default_organization
 from app.api.analytics import router as analytics_router
 from app.api.autonomous_agent import router as autonomous_agent_router
 from app.api.donors import router as donors_router
@@ -22,6 +22,7 @@ from app.api.embryos import router as embryos_router
 from app.api.import_data import router as import_router
 from app.api.grading import router as grading_router
 from app.api.health import router as health_router
+from app.api.organizations import router as organizations_router
 from app.api.predictions import router as predictions_router
 from app.api.protocols import router as protocols_router
 from app.api.qc import router as qc_router
@@ -90,6 +91,7 @@ async def lifespan(_: FastAPI):
     # Seed the default admin for local/dev databases when no users exist.
     db = SessionLocal()
     try:
+        ensure_default_organization(db)
         seeded = ensure_default_admin(db)
         if seeded:
             logger.info("Seeded default admin user during startup")
@@ -107,7 +109,16 @@ register_exception_handlers(app)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:5174", "http://localhost:5175", "http://localhost:5176"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://localhost:5175",
+        "http://localhost:5176",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:5174",
+        "http://127.0.0.1:5175",
+        "http://127.0.0.1:5176",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -127,6 +138,7 @@ app.include_router(predictions_router, prefix="/predict", tags=["predictions"])
 app.include_router(grading_router, prefix="/grade", tags=["grading"])
 app.include_router(qc_router, prefix="/qc", tags=["qc"])
 app.include_router(analytics_router, prefix="/analytics", tags=["analytics"])
+app.include_router(organizations_router)
 app.include_router(health_router, tags=["health"])
 
 

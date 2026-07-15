@@ -9,6 +9,7 @@ Then applies post-hoc calibration and generates SHAP explanations.
 """
 
 import json
+import hashlib
 import logging
 import warnings
 from datetime import datetime
@@ -34,6 +35,8 @@ from ml.config import (
     N_FOLDS,
     SEED,
     TARGET_COL,
+    FEATURE_SCHEMA_VERSION,
+    RISK_BANDS,
     XGBOOST_PARAMS,
     get_risk_band,
 )
@@ -207,12 +210,21 @@ def compute_shap_values(model, X: np.ndarray, feature_names: list[str]) -> dict:
 
     try:
         # Use a background summary for faster/consistent explanation
-        background = shap.kmeans(X, 50) if len(X) > 50 else X
+        # Explain a deterministic sample; explaining the full holdout with a
+        # calibrated ensemble is needlessly expensive for artifact metadata.
+        explained = X[: min(len(X), 20)]
+        # Keep this as a plain ndarray. Newer SHAP releases no longer accept
+        # the legacy DenseData object returned by shap.kmeans as a masker.
+        if len(X) > 50:
+            rng = np.random.RandomState(SEED)
+            background = X[rng.choice(len(X), size=20, replace=False)]
+        else:
+            background = X
         
         # Use appropriate explainer based on model type
         if hasattr(model, "predict_proba"):
             explainer = shap.Explainer(model.predict_proba, background, feature_names=feature_names)
-            shap_values = explainer(X)
+            shap_values = explainer(explained)
             # Take SHAP values for positive class (Pregnant)
             if len(shap_values.shape) == 3:
                 vals = shap_values.values[:, :, 1]
@@ -346,6 +358,10 @@ def run_full_pipeline(csv_path: str | None = None, version: str | None = None) -
 
     # Save encoder map (needed for inference)
     joblib.dump(encoder_map, artifact_dir / "encoder_map.joblib")
+    joblib.dump(
+        {"X": X_train, "y": y_train, "rows": train_df[["et_number", "et_date"]].astype(str).to_dict("records")},
+        artifact_dir / "reference_cases.joblib",
+    )
 
     # Save models
     for key in ("logistic", "xgboost", "tabpfn"):
@@ -373,6 +389,9 @@ def run_full_pipeline(csv_path: str | None = None, version: str | None = None) -
         "version": version,
         "created_at": datetime.now().isoformat(),
         "seed": SEED,
+        "feature_schema_version": FEATURE_SCHEMA_VERSION,
+        "risk_band_thresholds": RISK_BANDS,
+        "uncertainty_high_width": 0.30,
         "n_features": len(feature_names),
         "split": split_stats,
         "best_model": best_key,
@@ -397,6 +416,15 @@ def run_full_pipeline(csv_path: str | None = None, version: str | None = None) -
     with open(report_path, "w") as f:
         f.write(report)
 
+    artifact_files = [p for p in artifact_dir.iterdir() if p.is_file() and p.name != "manifest.json"]
+    manifest = {
+        "model_version": version,
+        "feature_schema_version": FEATURE_SCHEMA_VERSION,
+        "files": {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(artifact_files)},
+    }
+    with open(artifact_dir / "manifest.json", "w") as f:
+        json.dump(manifest, f, indent=2)
+
     logger.info("Pipeline complete. Best model: %s", best_key)
 
     return {
@@ -410,14 +438,15 @@ def run_full_pipeline(csv_path: str | None = None, version: str | None = None) -
 
 
 def _select_best_model(results: dict) -> str:
-    """Select the best model by holdout ROC-AUC."""
+    """Select the deployed artifact by calibrated holdout ROC-AUC."""
     best_key = "logistic"
     best_auc = 0.0
     for key in ("logistic", "xgboost", "tabpfn"):
         m = results.get(key, {})
         if m.get("model") is None:
             continue
-        auc = m.get("holdout_metrics", {}).get("roc_auc", 0)
+        metrics = m.get("calibrated_metrics") or m.get("holdout_metrics") or {}
+        auc = metrics.get("roc_auc", 0)
         if auc > best_auc:
             best_auc = auc
             best_key = key

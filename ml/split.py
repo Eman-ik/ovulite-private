@@ -29,6 +29,13 @@ def temporal_split(
     """
     cutoff_date = pd.to_datetime(cutoff)
     mask = df["et_date"] < cutoff_date
+    # Dataset refreshes do not always cross the configured calendar cutoff.
+    # Reserve the latest 20% chronologically so evaluation never uses training rows.
+    if mask.all() or (~mask).all():
+        ordered = df.sort_values("et_date", kind="stable")
+        holdout_size = max(1, int(round(len(ordered) * 0.2)))
+        holdout_indices = ordered.tail(holdout_size).index
+        mask = ~df.index.isin(holdout_indices)
     train = df[mask].copy().reset_index(drop=True)
     holdout = df[~mask].copy().reset_index(drop=True)
     return train, holdout

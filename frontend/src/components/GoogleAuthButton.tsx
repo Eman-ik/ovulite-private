@@ -1,4 +1,4 @@
-import { GoogleLogin, useGoogleLogin } from '@react-oauth/google';
+import { GoogleLogin } from '@react-oauth/google';
 import { useState } from 'react';
 import api from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
@@ -26,7 +26,7 @@ export const GoogleAuthButton = ({ isDark, onLoading, onError }: GoogleAuthButto
       const res = await api.post("/auth/google/mock");
       await loginFromGoogle(res.data.access_token, res.data.refresh_token);
       navigate("/dashboard");
-    } catch (err: any) {
+    } catch {
       onError?.("Demo login failed. Make sure to RESTART your backend.");
     } finally {
       setProcessing(false);

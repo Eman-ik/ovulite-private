@@ -1,0 +1,27 @@
+{
+  "source": "configured default",
+  "labeled_rows": 476,
+  "training_rows": 311,
+  "holdout_rows": 165,
+  "cutoff": "2025-12-01",
+  "features": [
+    "cl_measure_mm",
+    "embryo_stage",
+    "embryo_grade",
+    "heat_day",
+    "donor_bw_epd",
+    "sire_bw_epd",
+    "days_opu_to_et",
+    "bc_score",
+    "et_month_number",
+    "et_quarter",
+    "et_dayofweek",
+    "cl_side",
+    "protocol_name",
+    "fresh_or_frozen",
+    "technician_name",
+    "donor_breed",
+    "semen_type",
+    "customer_id"
+  ]
+}

@@ -3,16 +3,17 @@ import { motion, AnimatePresence } from "framer-motion";
 import confetti from "canvas-confetti";
 import { 
   Download, FileText, Zap, Sparkles, Database, Info, 
-  BarChart3, TrendingUp, CheckCircle2, Clock 
+  BarChart3, TrendingUp, CheckCircle2
 } from "lucide-react";
 
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
+
+type ReportsTab = "generate" | "templates" | "exports";
 
 export default function ReportsExportPage() {
-  const [activeTab, setActiveTab] = useState<"generate" | "templates" | "exports">("generate");
+  const [activeTab, setActiveTab] = useState<ReportsTab>("generate");
   
   const [reportType, setReportType] = useState("summary");
   const [exportFormat, setExportFormat] = useState("pdf");
@@ -99,7 +100,7 @@ export default function ReportsExportPage() {
           ].map((tab) => (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
+              onClick={() => setActiveTab(tab.id as ReportsTab)}
               className={`px-8 py-3 rounded-2xl font-medium flex items-center gap-2 transition-all ${
                 activeTab === tab.id 
                   ? "bg-gradient-to-r from-[#004D40] to-emerald-700 text-white shadow-lg" 
@@ -111,6 +112,12 @@ export default function ReportsExportPage() {
             </button>
           ))}
         </div>
+
+        {error && (
+          <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+            {error}
+          </div>
+        )}
 
         <AnimatePresence mode="wait">
           {/* GENERATE TAB */}
@@ -267,6 +274,35 @@ export default function ReportsExportPage() {
               <p className="text-[#475569] mb-8">Your report has been downloaded successfully.</p>
               <Button onClick={() => setShowSuccessModal(false)} className="w-full bg-emerald-700">
                 Done
+              </Button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Help Modal */}
+      <AnimatePresence>
+        {showInfoModal && (
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white rounded-3xl p-8 max-w-lg shadow-2xl"
+            >
+              <div className="flex items-start gap-4">
+                <div className="w-12 h-12 rounded-2xl bg-emerald-100 flex items-center justify-center">
+                  <Info className="w-6 h-6 text-emerald-700" />
+                </div>
+                <div>
+                  <h3 className="text-2xl font-bold text-[#1A202C]">Reports help</h3>
+                  <p className="mt-3 text-[#475569]">
+                    Choose a report type, export format, date range, and the sections to include. PDF is best for sharing; CSV and Excel are best for downstream analysis.
+                  </p>
+                </div>
+              </div>
+              <Button onClick={() => setShowInfoModal(false)} className="mt-8 w-full bg-emerald-700">
+                Got it
               </Button>
             </motion.div>
           </div>

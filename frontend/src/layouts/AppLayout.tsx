@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from "react-router-dom";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { ROLE_PERMISSIONS } from "@/lib/roleRoutes";
 import {
   LayoutDashboard,
@@ -41,11 +41,6 @@ export default function AppLayout() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const role = user?.role?.toLowerCase() || "viewer";
 const permissions = ROLE_PERMISSIONS[role as keyof typeof ROLE_PERMISSIONS];
-
-  const displayName = useMemo(() => {
-    if (!user) return "Guest";
-    return user.full_name || user.username;
-  }, [user]);
 
   const NavItems = ({ onNavigate }: { onNavigate?: () => void }) => (
     <nav className="space-y-1.5">

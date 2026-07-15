@@ -5,13 +5,14 @@ from sqlalchemy import Date, ForeignKey, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.models.mixins import OrganizationScopedMixin
 
 if TYPE_CHECKING:
     from app.models.et_transfer import ETTransfer
     from app.models.protocol import Protocol
 
 
-class ProtocolLog(Base):
+class ProtocolLog(OrganizationScopedMixin, Base):
     __tablename__ = "protocol_logs"
 
     log_id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.auth.security import verify_token
 from app.database import get_db
+from app.models.organization import Organization
 from app.models.user import User
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
@@ -24,6 +25,7 @@ def get_current_user(
     """
     payload = verify_token(token)
     username: str | None = payload.get("sub")
+    token_org_id = payload.get("org_id")
     if username is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -41,7 +43,28 @@ def get_current_user(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Inactive user account",
         )
+    if token_org_id is not None and user.organization_id != token_org_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token organization mismatch",
+        )
     return user
+
+
+def get_current_organization(current_user: User = Depends(get_current_user)) -> Organization:
+    """Return the authenticated user's organization."""
+    if current_user.organization_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User is not assigned to an organization",
+        )
+    organization = current_user.organization
+    if organization is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Organization not found",
+        )
+    return organization
 
 
 def require_role(*allowed_roles: str) -> Callable:

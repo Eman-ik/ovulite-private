@@ -209,9 +209,9 @@ def get_row_value(row: list, col_key: str, col_dict: dict) -> str:
     return ""
 
 
-def get_or_create_donor(db: Session, tag_id: str, breed: str | None, bw_epd: Decimal | None) -> Donor:
+def get_or_create_donor(db: Session, tag_id: str, breed: str | None, bw_epd: Decimal | None, organization_id: int) -> Donor:
     """Find existing donor by tag or create new one."""
-    donor = db.query(Donor).filter(Donor.tag_id == tag_id).first()
+    donor = db.query(Donor).filter(Donor.tag_id == tag_id, Donor.organization_id == organization_id).first()
     if donor:
         # Update breed/epd if we have better data
         if breed and not donor.breed:
@@ -219,17 +219,17 @@ def get_or_create_donor(db: Session, tag_id: str, breed: str | None, bw_epd: Dec
         if bw_epd is not None and donor.birth_weight_epd is None:
             donor.birth_weight_epd = bw_epd
         return donor
-    donor = Donor(tag_id=tag_id, breed=breed, birth_weight_epd=bw_epd)
+    donor = Donor(tag_id=tag_id, breed=breed, birth_weight_epd=bw_epd, organization_id=organization_id)
     db.add(donor)
     db.flush()
     return donor
 
 
 def get_or_create_sire(
-    db: Session, name: str, breed: str | None, bw_epd: Decimal | None, semen_type: str | None
+    db: Session, name: str, breed: str | None, bw_epd: Decimal | None, semen_type: str | None, organization_id: int
 ) -> Sire:
     """Find existing sire by name or create new one."""
-    sire = db.query(Sire).filter(Sire.name == name).first()
+    sire = db.query(Sire).filter(Sire.name == name, Sire.organization_id == organization_id).first()
     if sire:
         if breed and not sire.breed:
             sire.breed = breed
@@ -238,52 +238,52 @@ def get_or_create_sire(
         if semen_type and not sire.semen_type:
             sire.semen_type = semen_type
         return sire
-    sire = Sire(name=name, breed=breed, birth_weight_epd=bw_epd, semen_type=semen_type)
+    sire = Sire(name=name, breed=breed, birth_weight_epd=bw_epd, semen_type=semen_type, organization_id=organization_id)
     db.add(sire)
     db.flush()
     return sire
 
 
 def get_or_create_recipient(
-    db: Session, tag_id: str, farm_location: str | None, cow_or_heifer: str | None
+    db: Session, tag_id: str, farm_location: str | None, cow_or_heifer: str | None, organization_id: int
 ) -> Recipient:
     """Find existing recipient by tag + farm or create new one."""
     # Recipients may share tag IDs across farms, so match on tag_id + farm
-    q = db.query(Recipient).filter(Recipient.tag_id == tag_id)
+    q = db.query(Recipient).filter(Recipient.tag_id == tag_id, Recipient.organization_id == organization_id)
     if farm_location:
         q = q.filter(Recipient.farm_location == farm_location)
     recipient = q.first()
     if recipient:
         return recipient
-    recipient = Recipient(tag_id=tag_id, farm_location=farm_location, cow_or_heifer=cow_or_heifer)
+    recipient = Recipient(tag_id=tag_id, farm_location=farm_location, cow_or_heifer=cow_or_heifer, organization_id=organization_id)
     db.add(recipient)
     db.flush()
     return recipient
 
 
-def get_or_create_technician(db: Session, name: str) -> Technician:
+def get_or_create_technician(db: Session, name: str, organization_id: int) -> Technician:
     """Find existing technician by name or create new one."""
-    tech = db.query(Technician).filter(Technician.name == name).first()
+    tech = db.query(Technician).filter(Technician.name == name, Technician.organization_id == organization_id).first()
     if tech:
         return tech
-    tech = Technician(name=name)
+    tech = Technician(name=name, organization_id=organization_id)
     db.add(tech)
     db.flush()
     return tech
 
 
-def get_or_create_protocol(db: Session, name: str) -> Protocol:
+def get_or_create_protocol(db: Session, name: str, organization_id: int) -> Protocol:
     """Find existing protocol by name or create new one."""
-    proto = db.query(Protocol).filter(Protocol.name == name).first()
+    proto = db.query(Protocol).filter(Protocol.name == name, Protocol.organization_id == organization_id).first()
     if proto:
         return proto
-    proto = Protocol(name=name)
+    proto = Protocol(name=name, organization_id=organization_id)
     db.add(proto)
     db.flush()
     return proto
 
 
-def ingest_et_data(csv_path: str, db: Session) -> dict:
+def ingest_et_data(csv_path: str, db: Session, organization_id: int = 1, commit: bool = True) -> dict:
     """Parse ET Data.csv and insert into normalized tables.
 
     Returns a summary dict with counts.
@@ -301,8 +301,10 @@ def ingest_et_data(csv_path: str, db: Session) -> dict:
             # Skip empty rows
             if not row or all(cell.strip() == "" for cell in row):
                 continue
-            # Check if this looks like a data header
-            if any(h.lower() in row[i].lower() for i, h in enumerate(["Sr. No", "ET Date", "ET Number", "DAM", "SIRE"]) if i < len(row)):
+            # Header labels are not at fixed positions across source exports.
+            normalized_header = {cell.strip().lower() for cell in row}
+            has_identifier = bool(normalized_header & {"# et", "et number", "sr. no", "sr. no."})
+            if has_identifier and "et date" in normalized_header:
                 header = row
                 logger.info("Found data header at row %d: %d columns", raw_row_num, len(header))
                 break
@@ -340,7 +342,7 @@ def ingest_et_data(csv_path: str, db: Session) -> dict:
                     if donor_breed and ("/" in donor_breed or donor_breed.isdigit()):
                         logger.warning("Row %d: dirty donor breed %r for donor %s, setting to None", raw_row_num, donor_breed, donor_tag)
                         donor_breed = None
-                    donor = get_or_create_donor(db, donor_tag, donor_breed, donor_bw_epd)
+                    donor = get_or_create_donor(db, donor_tag, donor_breed, donor_bw_epd, organization_id)
 
                 # --- Sire ---
                 sire_name = clean_str(get_row_value(row, "sire_name", COL))
@@ -349,7 +351,7 @@ def ingest_et_data(csv_path: str, db: Session) -> dict:
                     sire_breed = clean_str(get_row_value(row, "sire_breed", COL))
                     sire_bw_epd = parse_decimal(get_row_value(row, "sire_bw_epd", COL))
                     semen_type = normalize_semen_type(get_row_value(row, "semen_type", COL))
-                    sire = get_or_create_sire(db, sire_name, sire_breed, sire_bw_epd, semen_type)
+                    sire = get_or_create_sire(db, sire_name, sire_breed, sire_bw_epd, semen_type, organization_id)
 
                 # --- Recipient ---
                 recip_tag = clean_str(get_row_value(row, "recipient_id_1", COL))
@@ -357,22 +359,23 @@ def ingest_et_data(csv_path: str, db: Session) -> dict:
                 if recip_tag:
                     farm = clean_str(get_row_value(row, "farm_location", COL))
                     cow_heifer = clean_str(get_row_value(row, "cow_or_heifer", COL))
-                    recipient = get_or_create_recipient(db, recip_tag, farm, cow_heifer)
+                    recipient = get_or_create_recipient(db, recip_tag, farm, cow_heifer, organization_id)
 
                 # --- Technician ---
                 tech_name = clean_str(get_row_value(row, "et_tech", COL))
                 technician = None
                 if tech_name:
-                    technician = get_or_create_technician(db, tech_name)
+                    technician = get_or_create_technician(db, tech_name, organization_id)
 
                 # --- Protocol ---
                 proto_name = clean_str(get_row_value(row, "protocol", COL))
                 protocol = None
                 if proto_name:
-                    protocol = get_or_create_protocol(db, proto_name)
+                    protocol = get_or_create_protocol(db, proto_name, organization_id)
 
                 # --- Embryo ---
                 embryo = Embryo(
+                    organization_id=organization_id,
                     donor_id=donor.donor_id if donor else None,
                     sire_id=sire.sire_id if sire else None,
                     opu_date=parse_date(get_row_value(row, "opu_date", COL)),
@@ -394,6 +397,7 @@ def ingest_et_data(csv_path: str, db: Session) -> dict:
                     continue
 
                 transfer = ETTransfer(
+                    organization_id=organization_id,
                     et_number=et_number,
                     lab=clean_str(get_row_value(row, "lab", COL)),
                     satellite=clean_str(get_row_value(row, "satellite", COL)),
@@ -422,10 +426,11 @@ def ingest_et_data(csv_path: str, db: Session) -> dict:
 
             except Exception as exc:
                 stats["rows_skipped"] += 1
-                stats["errors"].append(f"Row {row_num}: {exc}")
+                stats["errors"].append(f"Row {raw_row_num}: {exc}")
                 logger.error("Row %d failed: %s", row_num, exc)
 
-    db.commit()
+    if commit:
+        db.commit()
     return stats
 
 

@@ -17,6 +17,7 @@ class TokenResponse(BaseModel):
     refresh_token: str
     token_type: str = "bearer"
     expires_in: int = 1800  # 30 minutes in seconds
+    organization_id: int | None = None
 
 
 class RefreshTokenRequest(BaseModel):

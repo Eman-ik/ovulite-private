@@ -1,0 +1,2 @@
+record_type,row_id,et_date,donor,uncertainty_score,uncertainty_label,holdout_rows,mean_disagreement,max_disagreement,high_uncertainty_rows,moderate_uncertainty_rows,low_uncertainty_rows
+summary,,,,,,165,0.007214088179328489,0.02175830702568412,0,0,165

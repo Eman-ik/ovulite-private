@@ -10,6 +10,7 @@ import DashboardPage from "@/pages/DashboardPage";
 import DataEntryPage from "@/pages/DataEntryPage";
 import TransferFormPage from "@/pages/TransferFormPage";
 import PredictionPage from "@/pages/PredictionPage";
+import DecisionSupportPage from "@/pages/DecisionSupportPage";
 import GradingPage from "@/pages/GradingPage";
 import QCDashboardPage from "@/pages/QCDashboardPage";
 import AnalyticsPage from "@/pages/AnalyticsPage";
@@ -69,6 +70,15 @@ function App() {
   element={
     <ProtectedRoute allowedRoles={["admin", "et team"]}>
       <PredictionPage />
+    </ProtectedRoute>
+  }
+/>
+
+<Route
+  path="predictions/:id/decision-support"
+  element={
+    <ProtectedRoute allowedRoles={["admin", "et team"]}>
+      <DecisionSupportPage />
     </ProtectedRoute>
   }
 />
