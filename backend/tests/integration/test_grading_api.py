@@ -1,4 +1,16 @@
-"""Integration tests for embryo grading API endpoints."""
+"""Integration tests for embryo grading/similarity API endpoints.
+
+/grade/embryo and /grade/embryo-with-heatmap were removed in an earlier
+version of this API (the classifier had never been trained on real labels)
+and /grade/similar-cases was added as an honest replacement (nearest-
+neighbor visual similarity, no labels required). Real grade labels for
+these exact 482 images were subsequently sourced from a published dataset
+(Rocha et al. 2017, see docs/dataset/external/rocha2017_bovine_blastocyst/
+DATASET_CARD.md) and a classifier trained on them
+(ml/grading/train_real_grading.py) — /grade/embryo and
+/grade/embryo-with-heatmap are tested here again, now backed by that real
+model. /grade/similar-cases remains available as a complementary tool.
+"""
 
 import io
 import os
@@ -15,89 +27,22 @@ def test_grading_model_info(client, auth_headers):
     """Test GET /grade/model-info endpoint."""
     response = client.get("/grade/model-info", headers=auth_headers)
 
-    # Returns 200 if model loadable, 503 if dependencies/model unavailable.
-    if response.status_code == 200:
-        body = response.json()
-        assert "model_type" in body
-        assert "n_grades" in body
-        assert "grade_labels" in body
-        assert "backbone" in body
-        assert "trained" in body
-        assert body["n_grades"] == 3
-        assert body["backbone"] == "efficientnet_b0"
-    elif response.status_code == 503:
-        # PyTorch dependencies not installed
-        assert "model" in response.text.lower() or "pytorch" in response.text.lower()
-    else:
-        pytest.fail(f"Unexpected status {response.status_code}: {response.text}")
-
-
-@pytest.mark.integration
-def test_grade_embryo_requires_image(client, auth_headers):
-    """Test that /grade/embryo rejects requests without an image."""
-    response = client.post("/grade/embryo", headers=auth_headers)
-    assert response.status_code == 422  # FastAPI validation error
-
-
-@pytest.mark.integration
-def test_grade_embryo_rejects_invalid_content_type(client, auth_headers):
-    """Test that /grade/embryo rejects non-image files."""
-    fake_text = b"This is not an image"
-    files = {"image": ("test.txt", io.BytesIO(fake_text), "text/plain")}
-
-    response = client.post("/grade/embryo", files=files, headers=auth_headers)
-    assert response.status_code == 400
-    assert "invalid image" in response.text.lower()
-
-
-@pytest.mark.integration
-def test_grade_embryo_rejects_invalid_image_bytes(client, auth_headers):
-    """Reject malformed bytes even if the MIME type claims JPEG."""
-    malformed = b"not-a-real-jpeg"
-    files = {"image": ("fake.jpg", io.BytesIO(malformed), "image/jpeg")}
-
-    response = client.post("/grade/embryo", files=files, headers=auth_headers)
-    assert response.status_code == 400
-    assert "invalid image" in response.text.lower()
-
-
-@pytest.mark.integration
-def test_grade_embryo_accepts_image_jpg_mime_type(client, auth_headers):
-    """Accept image/jpg uploads and continue to image-byte validation."""
-    malformed = b"not-a-real-jpg"
-    files = {"image": ("fake.jpg", io.BytesIO(malformed), "image/jpg")}
-
-    response = client.post("/grade/embryo", files=files, headers=auth_headers)
-    assert response.status_code == 400
-    assert "invalid image" in response.text.lower()
-
-
-@pytest.mark.integration
-def test_grade_embryo_accepts_jpg_extension_with_generic_mime(client, auth_headers):
-    """Accept .jpg extension even if client sends a generic MIME type."""
-    malformed = b"not-a-real-jpg"
-    files = {"image": ("fake.jpg", io.BytesIO(malformed), "application/octet-stream")}
-
-    response = client.post("/grade/embryo", files=files, headers=auth_headers)
-    assert response.status_code == 400
-    assert "invalid image" in response.text.lower()
-
-
-@pytest.mark.integration
-def test_grade_embryo_rejects_empty_image(client, auth_headers):
-    """Test that /grade/embryo rejects empty image files."""
-    files = {"image": ("empty.jpg", io.BytesIO(b""), "image/jpeg")}
-
-    response = client.post("/grade/embryo", files=files, headers=auth_headers)
-    assert response.status_code == 400
-    assert "empty" in response.text.lower()
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert "model_type" in body
+    assert "backbone" in body
+    assert "trained" in body
+    assert body["backbone"] == "efficientnet_b0"
+    # No grade-classifier fields should be present anymore.
+    assert "n_grades" not in body
+    assert "grade_labels" not in body
 
 
 @pytest.mark.integration
 def test_grade_embryo_with_real_image(client, auth_headers):
-    """Test grading a real embryo image."""
+    """Test POST /grade/embryo against a real embryo image."""
     image_dir = Path(__file__).resolve().parents[3] / "docs" / "Blastocystimages" / "Blastocyst images"
-    
+
     if not image_dir.exists():
         pytest.skip(f"Embryo images not found at {image_dir}")
 
@@ -109,55 +54,44 @@ def test_grade_embryo_with_real_image(client, auth_headers):
 
     with open(test_image, "rb") as f:
         files = {"image": (test_image.name, f, "image/jpeg")}
-        data = {
-            "embryo_stage": "7",
-            "embryo_grade": "1",
-            "donor_breed": "Angus",
-            "fresh_or_frozen": "Fresh",
-            "technician_name": "Test Tech",
-        }
+        response = client.post("/grade/embryo", files=files, headers=auth_headers)
 
-        response = client.post("/grade/embryo", files=files, data=data, headers=auth_headers)
-
-    # 200: model available and grading succeeded
-    # 503: PyTorch/model not available
-    # 500: grading failed
-    assert response.status_code in (200, 503, 500), response.text
+    # 200: classifier artifact available and prediction succeeded
+    # 503: classifier not trained/available in this environment
+    assert response.status_code in (200, 503), response.text
 
     if response.status_code == 200:
         body = response.json()
-        assert "grade_label" in body
-        assert "grade_class" in body
-        assert "grade_probabilities" in body
-        assert "viability_score" in body
-        assert "heatmap_available" in body
-
-        # Validate types
-        assert body["grade_label"] in ("Low", "Medium", "High")
-        assert body["grade_class"] in (0, 1, 2)
-        assert isinstance(body["grade_probabilities"], dict)
-        assert "Low" in body["grade_probabilities"]
-        assert "Medium" in body["grade_probabilities"]
-        assert "High" in body["grade_probabilities"]
-        assert 0 <= body["viability_score"] <= 1
-        assert isinstance(body["heatmap_available"], bool)
-
-        # Probabilities should sum to ~1.0
-        prob_sum = sum(body["grade_probabilities"].values())
-        assert 0.99 <= prob_sum <= 1.01
+        assert body["predicted_grade"] in (1, 2, 3)
+        assert 0.0 <= body["confidence"] <= 1.0
+        assert len(body["probabilities"]) == 3
+        assert abs(sum(p["probability"] for p in body["probabilities"]) - 1.0) < 1e-3
+        assert body["heatmap_available"] is True
+        assert len(body["caveats"]) > 0
 
 
 @pytest.mark.integration
-def test_grade_embryo_with_heatmap_endpoint(client, auth_headers):
-    """Test /grade/embryo-with-heatmap returns base64-encoded heatmap."""
+def test_grade_embryo_rejects_invalid_image(client, auth_headers):
+    """Reject malformed bytes even if MIME type claims JPEG."""
+    malformed = b"not-a-real-jpeg"
+    files = {"image": ("fake.jpg", io.BytesIO(malformed), "image/jpeg")}
+
+    response = client.post("/grade/embryo", files=files, headers=auth_headers)
+    assert response.status_code == 400
+    assert "invalid image" in response.text.lower()
+
+
+@pytest.mark.integration
+def test_grade_embryo_with_heatmap(client, auth_headers):
+    """Test POST /grade/embryo-with-heatmap returns a Grad-CAM overlay image."""
     image_dir = Path(__file__).resolve().parents[3] / "docs" / "Blastocystimages" / "Blastocyst images"
-    
+
     if not image_dir.exists():
         pytest.skip(f"Embryo images not found at {image_dir}")
 
     images = list(image_dir.glob("*.jpg"))
     if not images:
-        pytest.skip("No JPEG images found")
+        pytest.skip("No JPEG images found in Blastocyst images directory")
 
     test_image = images[0]
 
@@ -165,25 +99,96 @@ def test_grade_embryo_with_heatmap_endpoint(client, auth_headers):
         files = {"image": (test_image.name, f, "image/jpeg")}
         response = client.post("/grade/embryo-with-heatmap", files=files, headers=auth_headers)
 
-    assert response.status_code in (200, 503, 500), response.text
+    assert response.status_code in (200, 503), response.text
+
+    if response.status_code == 200:
+        import base64
+
+        body = response.json()
+        assert body["predicted_grade"] in (1, 2, 3)
+        heatmap_bytes = base64.b64decode(body["heatmap_image_base64"])
+        # JPEG magic bytes
+        assert heatmap_bytes[:2] == b"\xff\xd8"
+        assert len(heatmap_bytes) > 100
+
+
+@pytest.mark.integration
+def test_similar_cases_requires_image(client, auth_headers):
+    """Test that /grade/similar-cases rejects requests without an image."""
+    response = client.post("/grade/similar-cases", headers=auth_headers)
+    assert response.status_code == 422  # FastAPI validation error
+
+
+@pytest.mark.integration
+def test_similar_cases_rejects_invalid_content_type(client, auth_headers):
+    """Test that /grade/similar-cases rejects non-image files."""
+    fake_text = b"This is not an image"
+    files = {"image": ("test.txt", io.BytesIO(fake_text), "text/plain")}
+
+    response = client.post("/grade/similar-cases", files=files, headers=auth_headers)
+    assert response.status_code == 400
+    assert "invalid image" in response.text.lower()
+
+
+@pytest.mark.integration
+def test_similar_cases_rejects_invalid_image_bytes(client, auth_headers):
+    """Reject malformed bytes even if the MIME type claims JPEG."""
+    malformed = b"not-a-real-jpeg"
+    files = {"image": ("fake.jpg", io.BytesIO(malformed), "image/jpeg")}
+
+    response = client.post("/grade/similar-cases", files=files, headers=auth_headers)
+    assert response.status_code == 400
+    assert "invalid image" in response.text.lower()
+
+
+@pytest.mark.integration
+def test_similar_cases_rejects_empty_image(client, auth_headers):
+    """Test that /grade/similar-cases rejects empty image files."""
+    files = {"image": ("empty.jpg", io.BytesIO(b""), "image/jpeg")}
+
+    response = client.post("/grade/similar-cases", files=files, headers=auth_headers)
+    assert response.status_code == 400
+    assert "empty" in response.text.lower()
+
+
+@pytest.mark.integration
+def test_similar_cases_with_real_image(client, auth_headers):
+    """Test similarity search against a real embryo image."""
+    image_dir = Path(__file__).resolve().parents[3] / "docs" / "Blastocystimages" / "Blastocyst images"
+
+    if not image_dir.exists():
+        pytest.skip(f"Embryo images not found at {image_dir}")
+
+    images = list(image_dir.glob("*.jpg"))
+    if not images:
+        pytest.skip("No JPEG images found in Blastocyst images directory")
+
+    test_image = images[0]
+
+    with open(test_image, "rb") as f:
+        files = {"image": (test_image.name, f, "image/jpeg")}
+        data = {"k": "5"}
+
+        response = client.post("/grade/similar-cases", files=files, data=data, headers=auth_headers)
+
+    # 200: similarity index available and search succeeded
+    # 503: similarity index/backbone not built yet in this environment
+    assert response.status_code in (200, 503), response.text
 
     if response.status_code == 200:
         body = response.json()
-        assert "grade_label" in body
-        assert "grade_class" in body
-        assert "grade_probabilities" in body
-        assert "viability_score" in body
-        assert "heatmap_base64" in body
+        assert "matches" in body
+        assert "n_index_cases" in body
+        assert "model_type" in body
+        assert isinstance(body["matches"], list)
+        assert len(body["matches"]) <= 5
 
-        # Heatmap may be None if generation failed
-        if body["heatmap_base64"]:
-            import base64
-            # Should be valid base64
-            try:
-                decoded = base64.b64decode(body["heatmap_base64"])
-                assert len(decoded) > 0
-            except Exception as e:
-                pytest.fail(f"Invalid base64 heatmap: {e}")
+        for match in body["matches"]:
+            assert "rank" in match
+            assert "filename" in match
+            assert "similarity" in match
+            assert "metadata" in match
+            assert -1.0 <= match["similarity"] <= 1.0
 
 
 @pytest.mark.integration
@@ -191,7 +196,7 @@ def test_grade_embryo_with_heatmap_endpoint(client, auth_headers):
 def test_upload_embryo_image(client, auth_headers):
     """Test /grade/upload endpoint for image storage."""
     image_dir = Path(__file__).resolve().parents[3] / "docs" / "Blastocystimages" / "Blastocyst images"
-    
+
     if not image_dir.exists():
         pytest.skip(f"Embryo images not found at {image_dir}")
 
@@ -243,11 +248,10 @@ def test_upload_rejects_invalid_image_bytes(client, auth_headers):
 
 
 @pytest.mark.integration
-def test_grade_embryo_size_limit(client, auth_headers):
-    """Test that grading endpoint rejects oversized images."""
+def test_similar_cases_size_limit(client, auth_headers):
+    """Test that the similarity endpoint rejects oversized images."""
     fake_large = io.BytesIO(b"x" * (11 * 1024 * 1024))
     files = {"image": ("large.jpg", fake_large, "image/jpeg")}
 
-    response = client.post("/grade/embryo", files=files, headers=auth_headers)
+    response = client.post("/grade/similar-cases", files=files, headers=auth_headers)
     assert response.status_code in (400, 413, 422)
-

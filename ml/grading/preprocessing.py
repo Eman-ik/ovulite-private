@@ -168,6 +168,31 @@ def load_image_from_bytes(image_bytes: bytes) -> "torch.Tensor":
     return tensor.unsqueeze(0)
 
 
+class LabeledImageDataset(Dataset):
+    """Plain (image, label) dataset — no metadata fusion.
+
+    Used for training/evaluating EmbryoGradeClassifier on the verified
+    real grade labels (ml/grading/real_labels.py), where no per-image
+    ET metadata is reliably available.
+    """
+
+    def __init__(self, image_paths: list, labels: list[int], transform=None):
+        self.image_paths = [Path(p) for p in image_paths]
+        self.labels = labels
+        self.transform = transform or get_eval_transforms()
+
+    def __len__(self):
+        return len(self.image_paths)
+
+    def __getitem__(self, idx):
+        from PIL import Image as PILImage
+
+        img = PILImage.open(self.image_paths[idx]).convert("RGB")
+        img_tensor = self.transform(img)
+        label = torch.tensor(self.labels[idx], dtype=torch.long)
+        return img_tensor, label
+
+
 class GradingDataset(Dataset):
     """Dataset for supervised grading that returns image + metadata + labels.
 

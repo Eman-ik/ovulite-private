@@ -49,6 +49,13 @@ BACKBONE = "efficientnet_b0"  # EfficientNet-B0 as specified in REQUIREMENTS §4
 BACKBONE_FEATURE_DIM = 1280  # EfficientNet-B0 output dimension
 FREEZE_BACKBONE_LAYERS = True  # Freeze early layers, fine-tune final blocks
 
+# ── Real-label grade classifier (verified Rocha et al. 2017 labels) ──
+REAL_GRADING_ARTIFACTS_DIR = GRADING_ARTIFACTS_DIR / "real_labels_v1"
+REAL_GRADING_EPOCHS = 60
+REAL_GRADING_BATCH_SIZE = 16
+REAL_GRADING_LR = 1e-4
+REAL_GRADING_PATIENCE = 12
+
 # ── Metadata features for fusion ─────────────────────────
 METADATA_FEATURES = [
     "embryo_stage",   # Ordinal 4-8

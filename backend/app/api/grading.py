@@ -1,13 +1,29 @@
-"""Embryo grading API endpoints (ROADMAP tasks 3.9-3.10).
+"""Embryo grading / similarity API endpoints.
 
 Provides:
-- POST /grade/embryo — upload image + optional metadata → grade + heatmap
-- GET  /grade/model-info — model metadata
+- POST /grade/embryo — upload image → Grade 1/2/3 prediction (real trained classifier)
+- POST /grade/embryo-with-heatmap — same, plus a Grad-CAM visual explanation
+- POST /grade/similar-cases — upload image → nearest visually-similar known cases
+- GET  /grade/model-info — similarity model metadata
 - POST /grade/upload — upload and store an embryo image
-- GET  /grade/heatmap/{image_id} — retrieve cached Grad-CAM heatmap
+
+Note on history: /grade/embryo and /grade/embryo-with-heatmap were removed in
+an earlier version of this router because the classifier had never been
+trained on real labels — the local ET dataset's `Embryo Grade` column is
+482/488 rows = Grade 1, no exploitable signal. /grade/similar-cases was
+added as an honest replacement (SimCLR nearest-neighbor search, no labels
+required). That gap is now closed: the same 482 images were verified
+(MD5, byte-identical) to be a published, openly licensed dataset — Rocha
+et al. 2017, Scientific Data — which carries real, varied expert grade
+labels for those exact images. See
+docs/dataset/external/rocha2017_bovine_blastocyst/DATASET_CARD.md and
+ml/grading/real_labels.py / train_real_grading.py. /grade/embryo and
+/grade/embryo-with-heatmap are restored here, now backed by a real trained
+classifier — see GradePredictionResponse.caveats for what it does and does
+not support (trained on an external dataset, not Ovulite's own farm data).
+/grade/similar-cases remains available as a complementary tool.
 """
 
-import base64
 import hashlib
 import io
 import logging
@@ -15,17 +31,19 @@ import sys
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import get_current_user
 from app.database import get_db
 from app.models.user import User
 from app.schemas.grading import (
+    GradePredictionResponse,
+    GradePredictionWithHeatmapResponse,
     GradingModelInfo,
-    GradingResult,
-    GradingResultWithHeatmap,
     ImageUploadResponse,
+    SimilarCase,
+    SimilarCaseMetadata,
+    SimilarCasesResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -36,78 +54,6 @@ _project_root = Path(__file__).resolve().parent.parent.parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-# Lazy singleton
-_grader = None
-
-
-class _FallbackEmbryoGrader:
-    """Lightweight fallback used when PyTorch grading stack is unavailable.
-
-    This keeps grading endpoints operational (non-503) in constrained runtimes.
-    """
-
-    def grade(self, image_bytes: bytes, metadata: dict | None = None, generate_heatmap: bool = True) -> dict:
-        seed = int(hashlib.sha256(image_bytes).hexdigest()[:8], 16)
-        # Stable pseudo-score in [0, 1] from image hash.
-        base_score = (seed % 1000) / 1000.0
-
-        # Metadata nudges for better plausibility when present.
-        stage = float((metadata or {}).get("embryo_stage", 6.0))
-        grade = float((metadata or {}).get("embryo_grade", 2.0))
-        adjusted = base_score + (stage - 6.0) * 0.03 - (grade - 2.0) * 0.04
-        viability = max(0.0, min(1.0, adjusted))
-
-        # Map viability to 3-class probability distribution.
-        high = max(0.0, min(1.0, viability))
-        low = max(0.0, min(1.0, 1.0 - viability))
-        medium = max(0.0, 1.0 - abs(viability - 0.5) * 2.0)
-
-        total = high + medium + low or 1.0
-        probs = {
-            "Low": round(low / total, 4),
-            "Medium": round(medium / total, 4),
-            "High": round(high / total, 4),
-        }
-
-        grade_class = max(probs, key=probs.get)
-        class_idx = {"Low": 0, "Medium": 1, "High": 2}[grade_class]
-
-        return {
-            "grade_label": grade_class,
-            "grade_class": class_idx,
-            "grade_probabilities": probs,
-            "viability_score": round(viability, 4),
-            "heatmap_bytes": None,
-        }
-
-    def get_model_info(self) -> dict:
-        return {
-            "model_type": "Fallback Heuristic Grader",
-            "n_grades": 3,
-            "grade_labels": {0: "Low", 1: "Medium", 2: "High"},
-            "backbone": "none",
-            "trained": False,
-            "timestamp": None,
-        }
-
-
-def _get_grader():
-    global _grader
-    if _grader is None:
-        try:
-            from ml.grading.predict import EmbryoGrader
-            _grader = EmbryoGrader.get_instance()
-        except ImportError as e:
-            logger.warning(
-                "Failed to import grading module (%s). Using fallback grader.",
-                e,
-            )
-            _grader = _FallbackEmbryoGrader()
-    return _grader
-
-
-# Heatmap cache (in-memory, keyed by image hash)
-_heatmap_cache: dict[str, bytes] = {}
 _MAX_IMAGE_BYTES = 10 * 1024 * 1024  # 10MB
 
 
@@ -145,119 +91,154 @@ def _validate_and_normalize_image(image_bytes: bytes) -> tuple[bytes, int, int]:
         raise HTTPException(400, "Invalid image file")
 
 
-@router.post("/embryo", response_model=GradingResult)
+def _get_similarity_index():
+    """Lazy-load the singleton similarity index. Raises on failure (no fake fallback)."""
+    from ml.grading.similarity import get_similarity_index
+
+    return get_similarity_index()
+
+
+def _get_grade_classifier():
+    """Lazy-load the singleton grade classifier. Raises on failure (no fake fallback)."""
+    from ml.grading.grade_classifier import get_grade_classifier
+
+    return get_grade_classifier()
+
+
+@router.post("/embryo", response_model=GradePredictionResponse)
 async def grade_embryo(
     image: UploadFile = File(..., description="Embryo image (any file format)"),
-    embryo_stage: float | None = Form(None),
-    embryo_grade: float | None = Form(None),
-    donor_breed: str | None = Form(None),
-    fresh_or_frozen: str | None = Form(None),
-    technician_name: str | None = Form(None),
     _current_user: User = Depends(get_current_user),
 ):
-    """Grade an embryo image and return viability prediction with Grad-CAM heatmap.
+    """Predict embryo grade (1/2/3) for an uploaded image.
 
-    Accepts uploads in any file format; content is validated during image parsing.
+    Backed by a real trained classifier (ml/grading/train_real_grading.py)
+    using the verified Rocha et al. 2017 grade labels — see
+    GradePredictionResponse.caveats for scope and limitations.
     """
-
     raw_image_bytes = await image.read()
     image_bytes, _, _ = _validate_and_normalize_image(raw_image_bytes)
 
-    # Build metadata dict
-    metadata = {}
-    if embryo_stage is not None:
-        metadata["embryo_stage"] = embryo_stage
-    if embryo_grade is not None:
-        metadata["embryo_grade"] = embryo_grade
-    if donor_breed is not None:
-        metadata["donor_breed"] = donor_breed
-    if fresh_or_frozen is not None:
-        metadata["fresh_or_frozen"] = fresh_or_frozen
-    if technician_name is not None:
-        metadata["technician_name"] = technician_name
-
     try:
-        grader = _get_grader()
-        result = grader.grade(image_bytes, metadata=metadata or None, generate_heatmap=True)
+        classifier = _get_grade_classifier()
+        result = classifier.predict(image_bytes)
+    except FileNotFoundError as e:
+        raise HTTPException(503, f"Embryo grade classifier not available: {e}")
     except ImportError as e:
-        raise HTTPException(503, f"Grading model dependencies not available: {e}")
+        raise HTTPException(503, f"Grade classifier dependencies not available: {e}")
     except Exception as e:
-        logger.exception("Grading failed")
-        raise HTTPException(500, f"Grading failed: {str(e)}")
+        logger.exception("Grade prediction failed")
+        raise HTTPException(500, f"Grade prediction failed: {str(e)}")
 
-    # Cache heatmap if generated
-    heatmap_available = result.get("heatmap_bytes") is not None
-    if heatmap_available:
-        img_hash = hashlib.sha256(image_bytes).hexdigest()[:16]
-        _heatmap_cache[img_hash] = result["heatmap_bytes"]
-
-    return GradingResult(
-        grade_label=result["grade_label"],
-        grade_class=result["grade_class"],
-        grade_probabilities=result["grade_probabilities"],
-        viability_score=result["viability_score"],
-        heatmap_available=heatmap_available,
+    return GradePredictionResponse(
+        predicted_grade=result["predicted_grade"],
+        predicted_label=result["predicted_label"],
+        confidence=result["confidence"],
+        probabilities=result["probabilities"],
+        model_version=classifier.version,
+        heatmap_available=True,
     )
 
 
-@router.post("/embryo-with-heatmap", response_model=GradingResultWithHeatmap)
+@router.post("/embryo-with-heatmap", response_model=GradePredictionWithHeatmapResponse)
 async def grade_embryo_with_heatmap(
     image: UploadFile = File(..., description="Embryo image (any file format)"),
-    embryo_stage: float | None = Form(None),
-    embryo_grade: float | None = Form(None),
-    donor_breed: str | None = Form(None),
-    fresh_or_frozen: str | None = Form(None),
-    technician_name: str | None = Form(None),
     _current_user: User = Depends(get_current_user),
 ):
-    """Grade an embryo and return result with base64-encoded heatmap."""
+    """Predict embryo grade and return a Grad-CAM overlay explaining the prediction."""
+    import base64
+
     raw_image_bytes = await image.read()
     image_bytes, _, _ = _validate_and_normalize_image(raw_image_bytes)
 
-    metadata = {}
-    if embryo_stage is not None:
-        metadata["embryo_stage"] = embryo_stage
-    if embryo_grade is not None:
-        metadata["embryo_grade"] = embryo_grade
-    if donor_breed is not None:
-        metadata["donor_breed"] = donor_breed
-    if fresh_or_frozen is not None:
-        metadata["fresh_or_frozen"] = fresh_or_frozen
-    if technician_name is not None:
-        metadata["technician_name"] = technician_name
+    try:
+        classifier = _get_grade_classifier()
+        result, overlay_bytes = classifier.predict_with_heatmap(image_bytes)
+    except FileNotFoundError as e:
+        raise HTTPException(503, f"Embryo grade classifier not available: {e}")
+    except ImportError as e:
+        raise HTTPException(503, f"Grade classifier dependencies not available: {e}")
+    except Exception as e:
+        logger.exception("Grade prediction with heatmap failed")
+        raise HTTPException(500, f"Grade prediction failed: {str(e)}")
+
+    return GradePredictionWithHeatmapResponse(
+        predicted_grade=result["predicted_grade"],
+        predicted_label=result["predicted_label"],
+        confidence=result["confidence"],
+        probabilities=result["probabilities"],
+        model_version=classifier.version,
+        heatmap_available=True,
+        heatmap_image_base64=base64.b64encode(overlay_bytes).decode("ascii"),
+    )
+
+
+@router.post("/similar-cases", response_model=SimilarCasesResponse)
+async def grade_similar_cases(
+    image: UploadFile = File(..., description="Embryo image (any file format)"),
+    k: int = Form(5, ge=1, le=20, description="Number of similar cases to return"),
+    _current_user: User = Depends(get_current_user),
+):
+    """Find the k most visually similar known embryo cases for an uploaded image.
+
+    This is a nearest-neighbor visual reference tool built on unsupervised
+    SimCLR embeddings — it does NOT assign a grade or a calibrated confidence
+    score. Use it to see which historical cases (and their recorded outcomes,
+    where available) looked most similar to the new image.
+    """
+    raw_image_bytes = await image.read()
+    image_bytes, _, _ = _validate_and_normalize_image(raw_image_bytes)
 
     try:
-        grader = _get_grader()
-        result = grader.grade(image_bytes, metadata=metadata or None, generate_heatmap=True)
+        index = _get_similarity_index()
+        matches = index.find_similar(image_bytes, k=k)
+    except FileNotFoundError as e:
+        raise HTTPException(503, f"Embryo similarity model not available: {e}")
+    except ImportError as e:
+        raise HTTPException(503, f"Similarity model dependencies not available: {e}")
     except Exception as e:
-        logger.exception("Grading failed")
-        raise HTTPException(500, f"Grading failed: {str(e)}")
+        logger.exception("Similarity search failed")
+        raise HTTPException(500, f"Similarity search failed: {str(e)}")
 
-    response = {
-        "grade_label": result["grade_label"],
-        "grade_class": result["grade_class"],
-        "grade_probabilities": result["grade_probabilities"],
-        "viability_score": result["viability_score"],
-        "heatmap_base64": None,
-    }
-
-    if result.get("heatmap_bytes"):
-        response["heatmap_base64"] = base64.b64encode(result["heatmap_bytes"]).decode("ascii")
-
-    return response
+    return SimilarCasesResponse(
+        matches=[
+            SimilarCase(
+                rank=m["rank"],
+                filename=m["filename"],
+                similarity=m["similarity"],
+                metadata=SimilarCaseMetadata(**m["metadata"]),
+            )
+            for m in matches
+        ],
+        n_index_cases=len(index.filenames),
+        model_type="simclr_efficientnet_b0",
+    )
 
 
 @router.get("/model-info", response_model=GradingModelInfo)
 async def grading_model_info(_current_user: User = Depends(get_current_user)):
-    """Return information about the current grading model."""
+    """Return information about the current embryo-similarity model."""
     try:
-        grader = _get_grader()
-        info = grader.get_model_info()
+        index = _get_similarity_index()
+    except (FileNotFoundError, ImportError):
+        return GradingModelInfo(
+            model_type="SimCLR similarity index (unavailable)",
+            backbone="efficientnet_b0",
+            trained=False,
+            n_index_cases=None,
+            timestamp=None,
+        )
     except Exception as e:
         logger.exception("Failed to get model info")
         raise HTTPException(500, str(e))
 
-    return GradingModelInfo(**info)
+    return GradingModelInfo(
+        model_type="SimCLR self-supervised similarity index",
+        backbone="efficientnet_b0",
+        trained=True,
+        n_index_cases=len(index.filenames),
+        timestamp=index.index_meta.get("timestamp"),
+    )
 
 
 @router.post("/upload", response_model=ImageUploadResponse)
@@ -268,7 +249,7 @@ async def upload_embryo_image(
     db: Session = Depends(get_db),
     _current_user: User = Depends(get_current_user),
 ):
-    """Upload and store an embryo image for later grading.
+    """Upload and store an embryo image for later review.
 
     Saves the image to disk and creates a database record.
     """

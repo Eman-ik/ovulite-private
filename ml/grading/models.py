@@ -257,6 +257,107 @@ class EmbryoGradingModel(nn.Module):
 
 
 # ═══════════════════════════════════════════════════════════
+# Image-only grade classifier (real-label training, no metadata fusion)
+# ═══════════════════════════════════════════════════════════
+
+class EmbryoGradeClassifier(nn.Module):
+    """CNN-only 3-class grade classifier for the verified real labels.
+
+    No metadata branch and no viability head: there is no reliable
+    per-image ET metadata or pregnancy-outcome linkage for the Rocha
+    et al. 2017 image set (see ml/grading/real_labels.py), so this
+    model is intentionally simpler than EmbryoGradingModel — it only
+    predicts what the training labels actually support: image → grade.
+    """
+
+    def __init__(self, n_grades: int = 3, freeze_backbone: bool = True):
+        super().__init__()
+        if not HAS_TORCH:
+            raise ImportError("PyTorch required")
+
+        from torchvision.models import EfficientNet_B0_Weights, efficientnet_b0
+
+        self.backbone = efficientnet_b0(weights=EfficientNet_B0_Weights.DEFAULT)
+        feature_dim = self.backbone.classifier[1].in_features
+        self.backbone.classifier = nn.Identity()
+
+        if freeze_backbone:
+            # Freeze everything except the last two feature blocks, same
+            # policy as EmbryoGradingModel / ROADMAP task 3.4.
+            for name, param in self.backbone.named_parameters():
+                if "features.8" not in name and "features.7" not in name:
+                    param.requires_grad = False
+
+        self.classifier_head = nn.Sequential(
+            nn.Linear(feature_dim, 128),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(128, n_grades),
+        )
+
+    def forward(self, image):
+        features = self.backbone(image)
+        return self.classifier_head(features)
+
+
+class GradCAMClassifier:
+    """Grad-CAM for EmbryoGradeClassifier (image-only forward signature)."""
+
+    def __init__(self, model: EmbryoGradeClassifier):
+        if not HAS_TORCH:
+            raise ImportError("PyTorch required")
+        self.model = model
+        self.gradients = None
+        self.activations = None
+
+    def _register_hooks(self, target_layer):
+        def forward_hook(module, input, output):
+            self.activations = output.detach()
+
+        def backward_hook(module, grad_input, grad_output):
+            self.gradients = grad_output[0].detach()
+
+        fh = target_layer.register_forward_hook(forward_hook)
+        bh = target_layer.register_full_backward_hook(backward_hook)
+        return fh, bh
+
+    def generate(self, image: "torch.Tensor", target_class: int | None = None) -> np.ndarray:
+        """Generate a Grad-CAM heatmap for a single (1, 3, 224, 224) image tensor."""
+        self.model.eval()
+        target_layer = self.model.backbone.features[-1]
+        fh, bh = self._register_hooks(target_layer)
+
+        try:
+            image.requires_grad_(True)
+            grade_logits = self.model(image)
+
+            if target_class is None:
+                target_class = grade_logits.argmax(dim=1).item()
+
+            self.model.zero_grad()
+            score = grade_logits[0, target_class]
+            score.backward(retain_graph=True)
+
+            weights = self.gradients.mean(dim=(2, 3), keepdim=True)
+            cam = (weights * self.activations).sum(dim=1, keepdim=True)
+            cam = F.relu(cam)
+
+            cam = F.interpolate(cam, size=(224, 224), mode="bilinear", align_corners=False)
+            cam = cam.squeeze().detach().cpu().numpy()
+
+            cam_min, cam_max = cam.min(), cam.max()
+            if cam_max - cam_min > 1e-8:
+                cam = (cam - cam_min) / (cam_max - cam_min)
+            else:
+                cam = np.zeros_like(cam)
+
+            return cam
+        finally:
+            fh.remove()
+            bh.remove()
+
+
+# ═══════════════════════════════════════════════════════════
 # Grad-CAM (Task 3.7)
 # ═══════════════════════════════════════════════════════════
 
