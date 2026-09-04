@@ -10,16 +10,34 @@ from datetime import datetime
 from ml.config import DATA_CSV, TARGET_COL
 
 
-def build_enhanced_feature_matrix(db_conn=None):
+def build_enhanced_feature_matrix(db_conn=None, fit_mask=None):
     """
     Build enhanced feature matrix with domain-specific engineered features.
-    
+
     Focus on:
     - Removing constant/useless features
     - Creating meaningful ratios and interactions
     - Temporal features
     - Quality indicators
+
+    Parameters
+    ----------
+    fit_mask : boolean pd.Series aligned to the loaded dataframe's index, or None.
+        Rows where technician/farm success-rate encodings and the median-fill
+        values are *learned* from. Required for any leakage-safe use — without
+        it, those steps are fit on the full dataset (train + holdout together),
+        which leaks the target into the features. Pass the training-split mask
+        here; when omitted this prints a loud warning and falls back to
+        fitting on the whole frame, which is only acceptable for ad-hoc
+        exploration, never for a model whose metrics will be reported.
     """
+    if fit_mask is None:
+        print(
+            "WARNING: build_enhanced_feature_matrix() called without fit_mask — "
+            "technician/farm success-rate encoding and median imputation will be "
+            "fit on the full dataset, including any holdout rows. This leaks the "
+            "target and must not be used for a model whose metrics get reported."
+        )
     
     # Load base features
     if db_conn:
@@ -132,15 +150,23 @@ def build_enhanced_feature_matrix(db_conn=None):
         df['perfect_sync'] = df['timing_optimal'] * df['heat_in_range']
     
     # --- Technician experience proxy ---
+    # Success-rate encodings must be learned only from fit_mask rows (the
+    # training split) — computing them over the full frame lets a row's own
+    # outcome (via its technician/farm peers, including itself) leak into its
+    # features. Unseen categories and, when no fit_mask is given, all rows
+    # fall back to the fit population's overall mean.
+    fit_rows = df[fit_mask] if fit_mask is not None else df
+
     if 'technician_name' in df.columns:
-        # Calculate historical success rate per technician
-        tech_success = df.groupby('technician_name')[TARGET_COL].mean()
-        df['technician_success_rate'] = df['technician_name'].map(tech_success)
-    
+        tech_success = fit_rows.groupby('technician_name')[TARGET_COL].mean()
+        overall_rate = fit_rows[TARGET_COL].mean()
+        df['technician_success_rate'] = df['technician_name'].map(tech_success).fillna(overall_rate)
+
     # --- Farm/Location historical performance ---
     if 'farm_location' in df.columns:
-        farm_success = df.groupby('farm_location')[TARGET_COL].mean()
-        df['farm_success_rate'] = df['farm_location'].map(farm_success)
+        farm_success = fit_rows.groupby('farm_location')[TARGET_COL].mean()
+        overall_rate = fit_rows[TARGET_COL].mean()
+        df['farm_success_rate'] = df['farm_location'].map(farm_success).fillna(overall_rate)
     
     print(f"✓ Created {len(df.columns) - len(df.select_dtypes(include=[object]).columns)} numeric features")
     
@@ -148,13 +174,14 @@ def build_enhanced_feature_matrix(db_conn=None):
     # STEP 3: Fill missing values strategically
     # ═══════════════════════════════════════════════════════════
     
-    # For numeric features, fill with median
+    # For numeric features, fill with the fit population's median (never the
+    # full dataset's — that would leak holdout-row values into training rows).
     numeric_cols = df.select_dtypes(include=[np.number]).columns
     numeric_cols = [c for c in numeric_cols if c != TARGET_COL]
-    
+
     for col in numeric_cols:
         if df[col].isnull().any():
-            df[col] = df[col].fillna(df[col].median())
+            df[col] = df[col].fillna(fit_rows[col].median())
     
     print(f"Final feature matrix: {len(df)} samples × {len(df.columns)} features")
     

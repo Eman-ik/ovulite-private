@@ -227,10 +227,10 @@ def main() -> None:
         status, body = call(
             client,
             "POST",
-            "/grade/embryo",
+            "/grade/similar-cases",
             files={"image": ("not-image.txt", bad_file, "text/plain")},
         )
-        results["grade/embryo"] = (status, "ok" if status == 400 else str(body))
+        results["grade/similar-cases"] = (status, "ok" if status == 400 else str(body))
 
     ordered = sorted(results.items(), key=lambda item: item[0])
     failures = [(k, v) for k, v in ordered if v[1] != "ok"]

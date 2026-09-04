@@ -44,10 +44,25 @@ class ShapContribution(BaseModel):
 
 
 class ShapExplanation(BaseModel):
-    """SHAP explanation for a prediction."""
+    """Feature-contribution explanation for a prediction.
+
+    `method` distinguishes a real SHAP explainer run from the fast linear
+    surrogate used by default for calibrated models (see ml/predict.py) —
+    the surrogate is accurate for the deployed logistic model but is not
+    SHAP, and callers should not present it to users as such.
+    """
 
     base_value: float = 0.0
     contributions: list[ShapContribution] = Field(default_factory=list)
+    method: str = Field(
+        default="shap",
+        description=(
+            "'shap' — genuine SHAP explainer output. "
+            "'calibrated_linear_surrogate' — coefficients of the calibrated model's "
+            "underlying linear estimator times feature deviation; fast and stable, "
+            "but an approximation, not SHAP."
+        ),
+    )
 
 
 class PredictionOutput(BaseModel):

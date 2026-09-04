@@ -349,11 +349,21 @@ Invoke-RestMethod -Method POST -Uri "http://localhost:8000/analytics/run" `
 | Data Entry | `/data-entry` | View & manage ET records |
 | New Transfer | `/data-entry/new` | Add new ET record |
 | Predictions | `/predictions` | Pregnancy prediction |
-| Embryo Grading | `/embryo-grading` | Image-based grading |
+| Embryo Grading | `/embryo-grading` | AI grade prediction (with Grad-CAM) + similarity assist (nearest known cases) + manual grade entry |
 | Lab QC | `/lab-qc` | QC anomaly dashboard |
 | Analytics | `/analytics` | KPIs & protocol analysis |
 
 ---
+
+## 8.1 Production: TLS/HTTPS
+
+The default `docker-compose.yml` above is plain HTTP, for local development only. For a production deployment, layer the TLS-termination overlay on top:
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build
+```
+
+This adds a Caddy service that gets HTTPS automatically (Let's Encrypt for a real domain, or a local CA for `*.localhost`). Set `API_DOMAIN` / `APP_DOMAIN` in `.env` to your real domains, set `SECRET_KEY` to a real generated secret (`openssl rand -hex 32`), and remove the direct `ports:` entries for `backend`/`frontend`/`db` in `docker-compose.yml` (or firewall them) so Caddy is the only public entry point. See `deploy/Caddyfile`.
 
 ## 9. Troubleshooting
 

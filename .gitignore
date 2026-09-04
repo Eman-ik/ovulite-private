@@ -41,6 +41,10 @@ ml/artifacts/*.joblib
 backend/*.db
 backend/*_output.txt
 backend/test_results.txt
+backend/data/
+
+# Claude Code local session state
+.claude/scheduled_tasks.lock
 
 # OS
 .DS_Store

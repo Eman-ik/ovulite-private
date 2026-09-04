@@ -3,6 +3,7 @@ FastAPI Routes for Ovulite Autonomous Agent
 Exposes all 4 phases through REST endpoints
 """
 
+import re
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -13,9 +14,42 @@ from sqlalchemy.orm import Session
 # from app.autonomous_agent.phase2_diagnostics import SHAPDiagnosticsEngine, DiagnosticReport
 # from app.autonomous_agent.phase3_watchdog import ProactiveWatchdog, SystemNotification
 # from app.autonomous_agent.phase4_research import ResearchIntegrator, ResearchInsight
-from app.database import get_db
+from app.auth.dependencies import require_role
+from app.database import DATABASE_URL, get_db
 
-router = APIRouter(prefix="/api/autonomous-agent", tags=["autonomous_agent"])
+# Every route below reaches into the database directly (some execute
+# near-raw SQL) and none of it is in the SRS's authorized surface, so the
+# whole router is gated to admins rather than left open to any caller.
+router = APIRouter(
+    prefix="/api/autonomous-agent",
+    tags=["autonomous_agent"],
+    dependencies=[Depends(require_role("admin"))],
+)
+
+
+_DISALLOWED_SQL_KEYWORDS = re.compile(
+    r"\b(insert|update|delete|drop|alter|truncate|grant|revoke|create|attach|pragma|exec|call)\b",
+    re.IGNORECASE,
+)
+
+
+def _ensure_read_only_query(sql: str) -> None:
+    """Reject anything but a single read-only SELECT/CTE statement.
+
+    There is no NL-to-SQL translation behind this endpoint (see
+    phase1_semantic/text_to_sql.py) — the caller's string reaches the
+    database close to verbatim, so it must never be allowed to write, alter
+    or drop anything.
+    """
+    stripped = (sql or "").strip().rstrip(";")
+    if not stripped:
+        raise HTTPException(status_code=400, detail="Query must not be empty")
+    if ";" in stripped:
+        raise HTTPException(status_code=400, detail="Multiple statements are not allowed")
+    if not re.match(r"^\s*(select|with)\b", stripped, re.IGNORECASE):
+        raise HTTPException(status_code=400, detail="Only SELECT queries are allowed")
+    if _DISALLOWED_SQL_KEYWORDS.search(stripped):
+        raise HTTPException(status_code=400, detail="Query contains a disallowed keyword")
 
 
 # ============================================================================
@@ -24,21 +58,26 @@ router = APIRouter(prefix="/api/autonomous-agent", tags=["autonomous_agent"])
 
 @router.post("/query")
 async def query_knowledge_base(
-    request: dict, # Generic dict to avoid importing SQLQueryRequest here
+    payload: dict,
     db: Session = Depends(get_db)
 ):
     """
-    Query the semantic knowledge base with natural language.
+    Run a read-only SQL query against the ET knowledge tables.
+
+    Admin-only. This is not natural-language search — the caller supplies a
+    SQL SELECT directly, so it is restricted to a single read-only statement.
     """
-    from app.autonomous_agent.phase1_semantic import SQLQueryEngine
+    from app.autonomous_agent.phase1_semantic import SQLQueryEngine, SQLQueryRequest
+
+    query_text = (payload or {}).get("query", "")
+    _ensure_read_only_query(query_text)
+
     try:
-        engine = SQLQueryEngine(
-            database_url="postgresql://ovulite:ovulite_dev_password@localhost:5432/ovulite"
-        )
-        
+        engine = SQLQueryEngine(database_url=DATABASE_URL)
+        request = SQLQueryRequest(query=query_text, context=(payload or {}).get("context"))
         response = await engine.query(request)
         return response
-    
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -51,7 +90,7 @@ async def get_upcoming_et_records(
     """Get all ET records scheduled for the next N days."""
     try:
         engine = SQLQueryEngine(
-            database_url="postgresql://ovulite:ovulite_dev_password@localhost:5432/ovulite"
+            database_url=DATABASE_URL
         )
         
         records = engine.get_upcoming_et_records()
@@ -79,7 +118,7 @@ async def search_knowledge_base(
     """
     try:
         vector_store = VectorStoreManager(
-            database_url="postgresql://ovulite:ovulite_dev_password@localhost:5432/ovulite"
+            database_url=DATABASE_URL
         )
         
         results = await vector_store.search(query, k=k, threshold=threshold)
@@ -157,7 +196,7 @@ async def get_low_confidence_diagnostics(
     """Get diagnostic analysis for low-confidence predictions."""
     try:
         engine = SQLQueryEngine(
-            database_url="postgresql://ovulite:ovulite_dev_password@localhost:5432/ovulite"
+            database_url=DATABASE_URL
         )
         
         predictions = engine.get_low_confidence_predictions(threshold)
@@ -182,7 +221,7 @@ async def get_watchdog_status():
     try:
         from app.autonomous_agent.phase3_watchdog import ProactiveWatchdog
         watchdog = ProactiveWatchdog(
-            database_url="postgresql://ovulite:ovulite_dev_password@localhost:5432/ovulite"
+            database_url=DATABASE_URL
         )
         
         return {
@@ -202,7 +241,7 @@ async def start_watchdog():
     """Start the proactive watchdog monitoring."""
     try:
         watchdog = ProactiveWatchdog(
-            database_url="postgresql://ovulite:ovulite_dev_password@localhost:5432/ovulite"
+            database_url=DATABASE_URL
         )
         
         watchdog.start_monitoring()
@@ -221,7 +260,7 @@ async def run_manual_watchdog_check():
     """Manually trigger a watchdog health check."""
     try:
         watchdog = ProactiveWatchdog(
-            database_url="postgresql://ovulite:ovulite_dev_password@localhost:5432/ovulite"
+            database_url=DATABASE_URL
         )
         
         await watchdog.run_health_check()

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.auth.security import verify_token
 from app.database import get_db
 from app.models.organization import Organization
+from app.models.token_blacklist import RevokedToken
 from app.models.user import User
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
@@ -30,6 +31,14 @@ def get_current_user(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token payload",
+        )
+
+    jti = payload.get("jti")
+    if jti is not None and db.query(RevokedToken).filter(RevokedToken.jti == jti).first():
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token has been revoked",
+            headers={"WWW-Authenticate": "Bearer"},
         )
 
     user = db.query(User).filter(User.username == username).first()

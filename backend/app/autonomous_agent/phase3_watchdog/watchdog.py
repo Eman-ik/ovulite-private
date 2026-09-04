@@ -182,20 +182,22 @@ class ProactiveWatchdog:
         
         try:
             with Session(self.engine) as session:
-                query = f"""
-                SELECT 
-                    transfer_id, 
-                    et_number,
-                    et_date,
-                    farm_location
-                FROM et_transfers
-                WHERE et_date >= CURRENT_DATE 
-                  AND et_date <= CURRENT_DATE + INTERVAL '{self.et_warning_hours} hours'
-                  AND et_date > CURRENT_DATE
-                ORDER BY et_date ASC;
-                """
-                
-                result = session.execute(text(query))
+                query = text(
+                    """
+                    SELECT
+                        transfer_id,
+                        et_number,
+                        et_date,
+                        farm_location
+                    FROM et_transfers
+                    WHERE et_date >= CURRENT_DATE
+                      AND et_date <= CURRENT_DATE + (:warning_hours * INTERVAL '1 hour')
+                      AND et_date > CURRENT_DATE
+                    ORDER BY et_date ASC;
+                    """
+                )
+
+                result = session.execute(query, {"warning_hours": self.et_warning_hours})
                 rows = result.fetchall()
                 
                 if rows:
@@ -233,21 +235,23 @@ class ProactiveWatchdog:
         
         try:
             with Session(self.engine) as session:
-                query = f"""
-                SELECT 
-                    p.prediction_id,
-                    p.transfer_id,
-                    p.model_name,
-                    p.probability,
-                    p.confidence_lower,
-                    p.predicted_at
-                FROM predictions p
-                WHERE p.confidence_lower < {self.confidence_threshold}
-                  AND p.predicted_at >= NOW() - INTERVAL '24 hours'
-                ORDER BY p.confidence_lower ASC;
-                """
-                
-                result = session.execute(text(query))
+                query = text(
+                    """
+                    SELECT
+                        p.prediction_id,
+                        p.transfer_id,
+                        p.model_name,
+                        p.probability,
+                        p.confidence_lower,
+                        p.predicted_at
+                    FROM predictions p
+                    WHERE p.confidence_lower < :threshold
+                      AND p.predicted_at >= NOW() - INTERVAL '24 hours'
+                    ORDER BY p.confidence_lower ASC;
+                    """
+                )
+
+                result = session.execute(query, {"threshold": self.confidence_threshold})
                 rows = result.fetchall()
                 
                 if rows:

@@ -180,6 +180,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 
   const logout = useCallback(() => {
+    const currentToken = localStorage.getItem(TOKEN_KEY);
+    if (currentToken) {
+      // Best-effort: revoke the token server-side so it can't be reused if
+      // leaked, but don't block clearing local state if the request fails
+      // (e.g. offline logout).
+      api
+        .post("/auth/logout", null, { headers: { Authorization: `Bearer ${currentToken}` } })
+        .catch((error) => console.error("[AuthContext] Server-side logout failed:", error));
+    }
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(REFRESH_TOKEN_KEY);
     setToken(null);

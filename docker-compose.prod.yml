@@ -1,0 +1,37 @@
+version: "3.9"
+
+# TLS-termination overlay (NFR-SEC-01). The base docker-compose.yml is
+# unchanged and stays exactly as documented in SETUP.md/VERIFY.md for local
+# dev — this file only adds a Caddy service in front of it.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build
+#
+# Compose merges (not replaces) `ports:` across files, so backend/frontend/db
+# stay reachable on their plain-HTTP dev ports even with this overlay applied.
+# Before exposing this to the internet, remove the `ports:` entries for
+# backend/frontend/db in docker-compose.yml (or firewall them off) so Caddy
+# is the only public entry point.
+
+services:
+  backend:
+    environment:
+      - ENVIRONMENT=production
+
+  caddy:
+    image: caddy:2-alpine
+    env_file: .env
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+      - frontend
+
+volumes:
+  caddy_data:
+  caddy_config:

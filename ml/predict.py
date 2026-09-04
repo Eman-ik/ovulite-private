@@ -258,10 +258,11 @@ class PregnancyPredictor:
             return {
                 "base_value": base_val,
                 "contributions": contributions[:15],
+                "method": "shap",
             }
         except Exception as exc:
             logger.warning("SHAP failed for single prediction: %s", exc)
-            return {"base_value": 0, "contributions": []}
+            return {"base_value": 0, "contributions": [], "method": "unavailable"}
 
 
 # Module-level singleton (lazy loaded)

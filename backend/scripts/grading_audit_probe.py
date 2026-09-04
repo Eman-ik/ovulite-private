@@ -1,4 +1,12 @@
-"""Audit probe for embryo grading system."""
+"""Audit probe for embryo similarity system.
+
+Historical note: this used to probe the grade-classifier (ml.grading.predict.
+EmbryoGrader). That classifier was removed — it was never trained on real
+labels (482/488 ET records = Grade 1, no exploitable signal) and its
+checkpoint was an explicitly-labeled placeholder file. This probe now checks
+the honest replacement: the SimCLR self-supervised embedding + nearest-
+neighbor similarity index (ml.grading.similarity).
+"""
 
 import io
 import sys
@@ -11,7 +19,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 def main():
     print("=" * 80)
-    print("EMBRYO GRADING SYSTEM AUDIT PROBE")
+    print("EMBRYO SIMILARITY SYSTEM AUDIT PROBE")
     print("=" * 80)
 
     # 1. Check artifact paths
@@ -33,27 +41,25 @@ def main():
     print(f"    Upload dir: {UPLOAD_DIR}")
     print(f"    Exists: {UPLOAD_DIR.exists()}")
 
-    # 2. Test model loading
-    print("\n[2] Testing model loader...")
+    # 2. Test similarity index loading
+    print("\n[2] Testing similarity index loader...")
+    similarity_index = None
     try:
-        from ml.grading.predict import EmbryoGrader
+        from ml.grading.similarity import get_similarity_index
 
-        grader = EmbryoGrader.get_instance()
-        info = grader.get_model_info()
-        print(f"    Model type: {info['model_type']}")
-        print(f"    Backbone: {info['backbone']}")
-        print(f"    Trained: {info['trained']}")
-        print(f"    Grades: {info['n_grades']} ({info['grade_labels']})")
-        if info["trained"]:
-            print(f"    Best val acc: {info.get('best_val_acc')}")
-            print(f"    Train samples: {info.get('n_train')}")
-            print(f"    Val samples: {info.get('n_val')}")
+        similarity_index = get_similarity_index()
+        print(f"    Index cases: {len(similarity_index.filenames)}")
+        print(f"    Feature dim: {similarity_index.embeddings.shape[1]}")
+        print(f"    Backbone: efficientnet_b0 (SimCLR pretrained)")
+        print(f"    Index built: {similarity_index.index_meta.get('timestamp')}")
     except ImportError as e:
         print(f"    ⚠ PyTorch not available: {e}")
+    except FileNotFoundError as e:
+        print(f"    ⚠ Similarity index/backbone not built yet: {e}")
     except Exception as e:
-        print(f"    ⚠ Model loading failed: {e}")
+        print(f"    ⚠ Index loading failed: {e}")
 
-    # 3. Test image processing safety
+    # 3. Test image processing safety + similarity search
     print("\n[3] Testing image upload handling...")
     if IMAGE_DIR.exists() and list(IMAGE_DIR.glob("*.jpg")):
         test_image_path = list(IMAGE_DIR.glob("*.jpg"))[0]
@@ -80,32 +86,21 @@ def main():
         except Exception as e:
             print(f"    ⚠ Invalid image: {e}")
 
-        # Test grading
-        try:
-            print("\n[4] Testing grading inference...")
-            grader = EmbryoGrader.get_instance()
-            metadata = {
-                "embryo_stage": 7,
-                "embryo_grade": 1,
-                "donor_breed": "Angus",
-                "fresh_or_frozen": "Fresh",
-                "technician_name": "Test Tech",
-            }
-            result = grader.grade(
-                image_bytes, metadata=metadata, generate_heatmap=True
-            )
-
-            print(f"    Grade: {result['grade_label']} (class {result['grade_class']})")
-            print(f"    Probabilities: {result['grade_probabilities']}")
-            print(f"    Viability score: {result['viability_score']}")
-            print(f"    Heatmap generated: {result['heatmap_bytes'] is not None}")
-            if result["heatmap_bytes"]:
-                print(f"    Heatmap size: {len(result['heatmap_bytes'])} bytes")
-
-        except ImportError as e:
-            print(f"    ⚠ PyTorch not available: {e}")
-        except Exception as e:
-            print(f"    ⚠ Grading failed: {e}")
+        # Test similarity search
+        if similarity_index is not None:
+            try:
+                print("\n[4] Testing similarity search inference...")
+                matches = similarity_index.find_similar(image_bytes, k=5)
+                for m in matches:
+                    print(
+                        f"    #{m['rank']} {m['filename']} "
+                        f"similarity={m['similarity']:.4f} "
+                        f"metadata={m['metadata']}"
+                    )
+            except Exception as e:
+                print(f"    ⚠ Similarity search failed: {e}")
+        else:
+            print("\n[4] Skipping similarity search test (index unavailable)")
 
     # 4. Check API endpoint availability
     print("\n[5] Testing API endpoints (via local FastAPI)...")
@@ -126,25 +121,23 @@ def main():
             print("    ℹ API server not running (start with uvicorn)")
         except Exception as e:
             print(f"    ⚠ API check failed: {e}")
-            
+
     except ImportError:
         print("    ℹ requests library not available")
 
-    # 5. Document training procedure
-    print("\n[6] Training procedure info...")
-    print("    To train the grading model, run:")
+    # 5. Document training / index-build procedure
+    print("\n[6] Training / index-build procedure info...")
+    print("    To (re)train the SimCLR backbone, run:")
     print("    $ cd D:\\Ovulite new")
-    print("    $ .\\backend\\venv\\Scripts\\python.exe -m ml.grading.run_training")
+    print("    $ .venv\\Scripts\\python.exe -m ml.grading.run_training --simclr")
     print()
-    print("    Training modes:")
-    print("      --simclr            : SimCLR pretraining only")
-    print("      --supervised        : Supervised training only")
-    print("      (no flags)          : Full pipeline (SimCLR + supervised)")
+    print("    To (re)build the similarity index from a trained backbone, run:")
+    print("    $ .venv\\Scripts\\python.exe -m ml.grading.build_index")
     print()
-    print("    Expected artifacts after training:")
+    print("    Expected artifacts:")
     print(f"      {ARTIFACTS_DIR / 'simclr_backbone.pt'}")
-    print(f"      {ARTIFACTS_DIR / 'grading_model.pt'}")
-    print(f"      {ARTIFACTS_DIR / 'grading_history.json'}")
+    print(f"      {ARTIFACTS_DIR / 'simclr_history.json'}")
+    print(f"      {ARTIFACTS_DIR / 'embedding_index.joblib'}")
 
     print("\n[7] Security findings...")
     print("    ✓ File type validation (JPEG/PNG only)")
@@ -152,7 +145,7 @@ def main():
     print("    ✓ Hash-based deduplication (SHA256)")
     print("    ✓ Filesystem path sanitization (hash-based filenames)")
     print("    ⚠ No virus scanning")
-    print("    ⚠ No EXIF data stripping (potential privacy leak)")
+    print("    ⚠ No EXIF data stripping on the /upload path's stored notes field")
 
     print("\n" + "=" * 80)
     print("AUDIT COMPLETE")

@@ -12,6 +12,7 @@ from app.models.protocol_log import ProtocolLog
 from app.models.recipient import Recipient
 from app.models.sire import Sire
 from app.models.technician import Technician
+from app.models.token_blacklist import RevokedToken
 from app.models.user import User
 
 __all__ = [
@@ -27,6 +28,7 @@ __all__ = [
     "Protocol",
     "ProtocolLog",
     "Recipient",
+    "RevokedToken",
     "Sire",
     "Technician",
     "User",

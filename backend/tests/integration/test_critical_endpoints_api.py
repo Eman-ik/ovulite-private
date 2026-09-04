@@ -330,9 +330,13 @@ def test_predict_pregnancy_endpoint(client, auth_headers):
 
 
 @pytest.mark.integration
-def test_grade_embryo_rejects_invalid_content_type(client, auth_headers):
+def test_grade_similar_cases_rejects_invalid_content_type(client, auth_headers):
+    # This covers /grade/similar-cases (SimCLR embedding nearest-neighbor
+    # search); /grade/embryo (Grade 1/2/3 classifier) is covered separately
+    # in test_grading_api.py — see backend/app/api/grading.py's module
+    # docstring for the history of both endpoints.
     response = client.post(
-        "/grade/embryo",
+        "/grade/similar-cases",
         files={"image": ("not-image.txt", b"hello", "text/plain")},
         headers=auth_headers,
     )

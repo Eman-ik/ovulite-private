@@ -369,9 +369,29 @@ Get-ChildItem -Path ml/artifacts/ -Recurse -ErrorAction SilentlyContinue | Selec
 
 ---
 
-## Phase 3 — Embryo Grading Model
+## Phase 3 — Embryo Similarity Assist
 
-**Goal:** AI embryo grading via image + metadata fusion with Grad-CAM visual explanations
+**Update:** `/grade/embryo` and `/grade/embryo-with-heatmap` are back and now backed by a
+real trained classifier — the 482 images turned out to be a published, openly licensed
+dataset (Rocha et al. 2017) with real IETS-style grade labels; see
+`docs/dataset/external/rocha2017_bovine_blastocyst/DATASET_CARD.md` and
+`ml/grading/train_real_grading.py`. This section's "why not a grade classifier" reasoning
+below describes why they were removed at an earlier point — it's kept for history, but the
+endpoints it describes as gone are available again. Verification steps for them live in
+`backend/tests/integration/test_grading_api.py`.
+
+**Goal:** honest visual reference tool — nearest-neighbor similarity search against known
+cases, built from unsupervised SimCLR pretraining on the raw images (no labels required).
+This remains available as a complementary tool alongside the grade classifier above.
+
+**Why not a grade classifier (historical):** the ET dataset is 482/488 rows = Grade 1
+(near-zero variance), so there was no exploitable signal in *that* dataset to train a
+Grade 1/2/3 classifier from. Earlier revisions of this document described a classifier +
+Grad-CAM heatmap; that was never backed by a real trained model (its checkpoint was an
+explicitly-labeled ~1.4KB placeholder) and the `/grade/embryo` / `/grade/embryo-with-heatmap`
+endpoints were removed rather than continuing to serve a fabricated grade. There was no
+Grad-CAM here —
+there's no grade classifier left to explain.
 
 ### 3.1 — Grading Model Info
 
@@ -379,7 +399,9 @@ Get-ChildItem -Path ml/artifacts/ -Recurse -ErrorAction SilentlyContinue | Selec
 Invoke-RestMethod -Uri "http://localhost:8000/grade/model-info" -Headers $headers
 ```
 
-**Expected:** Returns model architecture info: backbone type (EfficientNet-B0), input size, output classes (Grade 1/2/3 + viability score).
+**Expected:** Returns similarity-model info: backbone type (EfficientNet-B0, SimCLR
+self-supervised pretraining), whether the embedding index is trained/built, and the
+number of known cases in the index.
 
 ### 3.2 — Image Upload
 
@@ -394,43 +416,39 @@ curl -X POST http://localhost:8000/grade/upload `
 
 *(If image directory doesn't have files, use any JPG/PNG image for testing.)*
 
-### 3.3 — Embryo Grading (AT-4: Upload image → grade + heatmap)
+### 3.3 — Embryo Similarity Search (AT-4: Upload image → nearest known cases)
 
 ```powershell
-# Grade an embryo image
-curl -X POST http://localhost:8000/grade/embryo `
+# Find visually similar known cases
+curl -X POST http://localhost:8000/grade/similar-cases `
   -H "Authorization: Bearer $token" `
-  -F "file=@docs/Blastocystimages/Blastocyst images/blq1.jpg"
+  -F "image=@docs/Blastocystimages/Blastocyst images/blq1.jpg" `
+  -F "k=5"
 ```
 
 **Expected response contains:**
-- `grade` — integer 1, 2, or 3 (embryo quality grade)
-- `viability_score` — float between 0.0 and 1.0
-- `confidence` — model confidence in the grade
-- `class_probabilities` — probability for each grade class
+- `matches` — list of up to `k` nearest known cases, each with `rank`, `filename`,
+  `similarity` (cosine similarity, not a confidence/accuracy score), and `metadata`
+  (donor, breed, ET date, pregnancy outcome, etc. where linkable — may be sparse)
+- `n_index_cases` — total known cases in the similarity index
+- `model_type` — `simclr_efficientnet_b0`
 
-### 3.4 — Grad-CAM Heatmap (AT-4: visual explanation)
+Returns `503` if the SimCLR backbone / embedding index haven't been built yet in this
+environment (run `python -m ml.grading.run_training --simclr` then
+`python -m ml.grading.build_index`).
 
-```powershell
-curl -X POST http://localhost:8000/grade/embryo-with-heatmap `
-  -H "Authorization: Bearer $token" `
-  -F "file=@docs/Blastocystimages/Blastocyst images/blq1.jpg" `
-  --output heatmap_result.json
-```
-
-**Expected:** Response includes:
-- All fields from 3.3 (grade, viability, confidence)
-- `heatmap` — base64-encoded Grad-CAM overlay image showing which image regions influenced the grade
-
-### 3.5 — Frontend: Embryo Grading Page
+### 3.4 — Frontend: Embryo Similarity Page
 
 Navigate to: **http://localhost:5173/embryo-grading**
 
 **Expected:**
 - Drag-and-drop or file picker for embryo image upload
-- After upload → displays: grade (1/2/3), viability score, confidence
-- Grad-CAM heatmap overlay shown on the image (highlights important regions)
-- Class probability breakdown visible
+- A separate "Your Assessment" panel where the embryologist can record their own manual
+  grade — this is a plain human input field, not produced by or sent to the AI
+- After upload → "Find Similar Cases" displays a ranked list of visually similar known
+  cases with similarity scores and available historical context
+- No grade, viability score, confidence percentage, or Grad-CAM heatmap is shown — this
+  page does not claim to classify or predict, only to surface visual references
 
 ### 3.6 — ML Pipeline Files Exist
 
@@ -667,7 +685,7 @@ These are the formal acceptance tests from the ROADMAP verification gates:
 | AT-1 | All 488 ET records imported | 1 | Check transfer count ≈ 488 via `GET /transfers/?limit=1` → `total` field |
 | AT-2 | Invalid CL rejected | 1 | POST transfer with `cl_size_mm: 999` → `422` error |
 | AT-3 | Prediction returns P + CI + SHAP | 2 | POST `/predict/pregnancy` → response has `probability`, `confidence_interval`, `shap_values` |
-| AT-4 | Upload image → grade + heatmap | 3 | POST `/grade/embryo-with-heatmap` → response has `grade`, `heatmap` |
+| AT-4 | Upload image → similar known cases | 3 | POST `/grade/similar-cases` → response has `matches` with `similarity` scores |
 | AT-5 | Synthetic anomaly detected | 4 | Run QC with `--with-synthetic` → `GET /qc/anomalies` returns flagged anomalies |
 | AT-6 | Dashboard renders all KPIs | 5 | Visit `/analytics` → KPI cards, protocol charts, biomarker curves render |
 | AT-7 | Uncertainty displayed | 2 | Prediction response includes `confidence_interval` with lower/upper bounds |
@@ -690,7 +708,7 @@ A quick end-to-end run after setup:
 6. GET  /transfers/?limit=1                    → total ≈ 488
 7. GET  /donors/?limit=1                       → Donors populated
 8. POST /predict/pregnancy ({...})             → Probability + CI + SHAP
-9. POST /grade/embryo (image file)             → Grade + viability
+9. POST /grade/similar-cases (image file)      → Nearest similar known cases
 10. POST /qc/run                               → QC pipeline executes
 11. GET  /qc/anomalies                         → Anomaly list
 12. POST /analytics/run                        → Analytics pipeline executes

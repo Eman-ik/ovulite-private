@@ -131,3 +131,134 @@ export interface ETTransferDetail extends ETTransfer {
   opu_date?: string | null;
   cane_number?: string | null;
 }
+
+/* Analytics API Types (backend/app/schemas/analytics.py) */
+
+export interface AnalyticsDateRange {
+  first: string | null;
+  last: string | null;
+  span_months: number;
+}
+
+export interface AnalyticsEntityCounts {
+  donors: number;
+  recipients: number;
+  technicians: number;
+  protocols: number;
+  sires: number;
+}
+
+export interface AnalyticsFreshFrozenStats {
+  n: number;
+  pregnant: number;
+  rate: number | null;
+}
+
+export interface AnalyticsKPIResponse {
+  total_transfers: number;
+  with_outcome: number;
+  pregnant: number;
+  open: number;
+  pregnancy_rate: number | null;
+  embryo_utilization: number | null;
+  unique_embryos: number | null;
+  date_range: AnalyticsDateRange;
+  entity_counts: AnalyticsEntityCounts;
+  fresh_vs_frozen: Record<string, AnalyticsFreshFrozenStats>;
+}
+
+export interface AnalyticsMonthlyTrend {
+  month: string;
+  n_transfers: number;
+  n_pregnant: number;
+  pregnancy_rate: number;
+  avg_cl: number | null;
+}
+
+export interface AnalyticsFunnelStage {
+  stage: string;
+  count: number;
+  rate_from_previous: number | null;
+}
+
+export interface AnalyticsFunnelResponse {
+  stages: AnalyticsFunnelStage[];
+}
+
+export interface AnalyticsProtocolRate {
+  protocol_name: string;
+  n_transfers: number;
+  n_pregnant: number;
+  pregnancy_rate: number;
+  ci_lower: number;
+  ci_upper: number;
+}
+
+export interface AnalyticsProtocolRatesResponse {
+  protocols: AnalyticsProtocolRate[];
+  total: number;
+}
+
+export interface AnalyticsProtocolRegression {
+  coefficients: Record<string, number>;
+  odds_ratios: Record<string, number>;
+  intercept: number;
+  n_samples: number;
+  feature_names: string[];
+  protocol_classes: string[];
+  error: string | null;
+}
+
+export interface AnalyticsFeatureImportance {
+  mean: number;
+  std: number;
+}
+
+export interface AnalyticsProtocolImportance {
+  feature_importances: Record<string, AnalyticsFeatureImportance>;
+  protocol_total_importance: number;
+  n_samples: number;
+  error: string | null;
+}
+
+export interface AnalyticsDonorStats {
+  donor_tag: string;
+  breed: string | null;
+  n_transfers: number;
+  n_pregnant: number;
+  pregnancy_rate: number;
+  avg_cl: number | null;
+  first_date: string | null;
+  last_date: string | null;
+  active_months: number;
+}
+
+export interface AnalyticsDonorStatsResponse {
+  donors: AnalyticsDonorStats[];
+  total: number;
+}
+
+export interface AnalyticsBiomarkerBin {
+  range: string;
+  n: number;
+  pregnancy_rate: number;
+  ci_lower: number | null;
+  ci_upper: number | null;
+  mean_value: number | null;
+}
+
+export interface AnalyticsBiomarkerResult {
+  biomarker: string | null;
+  bins: AnalyticsBiomarkerBin[];
+  optimal_range: AnalyticsBiomarkerBin | null;
+  optimal_bin: AnalyticsBiomarkerBin | null;
+  overall_rate: number | null;
+  total_records: number;
+  error: string | null;
+}
+
+export interface AnalyticsBiomarkersResponse {
+  cl_measure: AnalyticsBiomarkerResult | null;
+  bc_score: AnalyticsBiomarkerResult | null;
+  heat_day: AnalyticsBiomarkerResult | null;
+}

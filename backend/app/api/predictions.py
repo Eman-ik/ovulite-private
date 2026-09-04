@@ -86,6 +86,7 @@ def predict_pregnancy(
     shap_explanation = ShapExplanation(
         base_value=shap_raw.get("base_value", 0),
         contributions=contributions,
+        method=shap_raw.get("method", "shap"),
     )
     request_id = str(uuid.uuid4())
     created_at = datetime.now(timezone.utc)
@@ -115,6 +116,7 @@ def predict_pregnancy(
         shap_json={
             "base_value": shap_raw.get("base_value", 0),
             "contributions": shap_raw.get("contributions", []),
+            "method": shap_raw.get("method", "shap"),
         },
         feature_snapshot=features,
         feature_schema_version=result["feature_schema_version"],

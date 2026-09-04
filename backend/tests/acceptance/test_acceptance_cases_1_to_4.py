@@ -160,7 +160,15 @@ class TestAT3PredictionWithCIAndSHAP:
 
 @pytest.mark.acceptance
 class TestAT4EmbryoGrading:
-    """AT-4: embryo grading endpoint behavior."""
+    """AT-4: embryo similarity endpoint behavior.
+
+    Note: this class covers /grade/similar-cases, an honest nearest-neighbor
+    visual similarity search over a SimCLR self-supervised embedding index.
+    /grade/embryo (Grade 1/2/3 classifier) went through the same history
+    this comment used to describe — removed for lacking real labels, then
+    restored once real labels were sourced (see ml/grading/real_labels.py
+    and backend/tests/integration/test_grading_api.py, which covers it).
+    """
 
     @staticmethod
     def _tiny_png_bytes() -> bytes:
@@ -174,41 +182,44 @@ class TestAT4EmbryoGrading:
         img.save(buf, format="PNG")
         return buf.getvalue()
 
-    def test_grading_upload_returns_grade(self, client: TestClient, auth_headers: dict):
+    def test_similar_cases_returns_matches(self, client: TestClient, auth_headers: dict):
         response = client.post(
-            "/grade/embryo",
+            "/grade/similar-cases",
             files={"image": ("test.png", self._tiny_png_bytes(), "image/png")},
             headers=auth_headers,
         )
         if response.status_code == 503:
-            pytest.skip("Grading dependencies/model unavailable in this environment")
+            pytest.skip("Similarity index/backbone unavailable in this environment")
         assert response.status_code == 200, response.text
         data = response.json()
-        assert "grade_label" in data
+        assert "matches" in data
+        assert isinstance(data["matches"], list)
 
-    def test_grading_returns_probabilities(self, client: TestClient, auth_headers: dict):
+    def test_similar_cases_match_has_similarity_score(self, client: TestClient, auth_headers: dict):
         response = client.post(
-            "/grade/embryo",
+            "/grade/similar-cases",
             files={"image": ("test.png", self._tiny_png_bytes(), "image/png")},
             headers=auth_headers,
         )
         if response.status_code == 503:
-            pytest.skip("Grading dependencies/model unavailable in this environment")
+            pytest.skip("Similarity index/backbone unavailable in this environment")
         assert response.status_code == 200, response.text
-        probs = response.json().get("grade_probabilities", {})
-        assert isinstance(probs, dict)
+        matches = response.json().get("matches", [])
+        for match in matches:
+            assert "similarity" in match
+            assert isinstance(match["similarity"], (int, float))
 
-    def test_grading_invalid_image_format(self, client: TestClient, auth_headers: dict):
+    def test_similar_cases_invalid_image_format(self, client: TestClient, auth_headers: dict):
         response = client.post(
-            "/grade/embryo",
+            "/grade/similar-cases",
             files={"image": ("test.txt", b"not-an-image", "text/plain")},
             headers=auth_headers,
         )
         assert response.status_code in (400, 422, 500, 503), response.text
 
-    def test_grading_empty_image_rejected(self, client: TestClient, auth_headers: dict):
+    def test_similar_cases_empty_image_rejected(self, client: TestClient, auth_headers: dict):
         response = client.post(
-            "/grade/embryo",
+            "/grade/similar-cases",
             files={"image": ("test.png", b"", "image/png")},
             headers=auth_headers,
         )

@@ -8,7 +8,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import get_current_user, oauth2_scheme
 from app.auth.security import (
     create_access_token,
     create_refresh_token,
@@ -17,6 +17,7 @@ from app.auth.security import (
     verify_token,
 )
 from app.database import get_db
+from app.models.token_blacklist import RevokedToken
 from app.models.user import User
 from app.models.organization import Organization, OrganizationMembership
 from app.schemas.organization import OrganizationRegistrationRequest, OrganizationRegistrationResponse
@@ -246,6 +247,26 @@ def register(
 def get_me(current_user: User = Depends(get_current_user)) -> User:
     """Return the currently authenticated user's profile."""
     return current_user
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+def logout(
+    token: str = Depends(oauth2_scheme),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> None:
+    """Revoke the caller's current access token immediately, rather than waiting for it to expire."""
+    payload = verify_token(token)
+    jti = payload.get("jti")
+    if jti and not db.query(RevokedToken).filter(RevokedToken.jti == jti).first():
+        exp_ts = payload.get("exp")
+        expires_at = (
+            datetime.fromtimestamp(exp_ts, tz=timezone.utc) if exp_ts else datetime.now(timezone.utc)
+        )
+        db.add(RevokedToken(jti=jti, expires_at=expires_at, revoked_at=datetime.now(timezone.utc)))
+        db.commit()
+    logger.info("User '%s' logged out", current_user.username)
+    return None
 
 
 @router.post("/seed", response_model=UserResponse, status_code=status.HTTP_201_CREATED)

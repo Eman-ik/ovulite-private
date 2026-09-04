@@ -15,11 +15,9 @@ import {
   Dna,
   Download,
   Droplets,
-  Eye,
   FlaskConical,
   Info,
   Leaf,
-  Pencil,
   RotateCcw,
   Save,
   ShieldCheck,
@@ -58,6 +56,7 @@ interface PredictionResult {
   shap_explanation: {
     base_value: number;
     contributions: ShapContribution[];
+    method?: string;
   };
   prediction_id: number | null;
 }
@@ -143,22 +142,15 @@ const initialForm: FormState = {
   customerId: "DZF",
 };
 
-type RecentRow = {
-  caseId: string;
-  recipient: string;
-  embryo: string;
-  date: string;
+type HistoryItem = {
+  prediction_id: number;
+  transfer_id: number | null;
+  model_name: string;
   probability: number;
-  confidence: "High" | "Medium" | "Low";
-  outcome: "Pending" | "Pregnant" | "Not Pregnant";
+  risk_band: string | null;
+  predicted_at: string;
+  actual_outcome: string | null;
 };
-
-const recentData: RecentRow[] = [
-  { caseId: "ET-2026-00124", recipient: "REC-0345", embryo: "EMB-0456", date: "05 Jul 2026", probability: 72, confidence: "Medium", outcome: "Pending" },
-  { caseId: "ET-2026-00123", recipient: "REC-0338", embryo: "EMB-0449", date: "04 Jul 2026", probability: 61, confidence: "High", outcome: "Pregnant" },
-  { caseId: "ET-2026-00122", recipient: "REC-0321", embryo: "EMB-0432", date: "03 Jul 2026", probability: 38, confidence: "Medium", outcome: "Not Pregnant" },
-  { caseId: "ET-2026-00121", recipient: "REC-0318", embryo: "EMB-0425", date: "02 Jul 2026", probability: 81, confidence: "High", outcome: "Pregnant" },
-];
 
 function SectionShell({
   icon: Icon,
@@ -323,7 +315,8 @@ export default function PredictionPage() {
   const [error, setError] = useState("");
   const [initError, setInitError] = useState("");
   const [outcomeOpen, setOutcomeOpen] = useState(false);
-  const [outcomeCase, setOutcomeCase] = useState("");
+  const [outcomePredictionId, setOutcomePredictionId] = useState<number | null>(null);
+  const [recentRefreshKey, setRecentRefreshKey] = useState(0);
   const [assistantOpen, setAssistantOpen] = useState(false);
 
   const setField = <K extends keyof FormState>(key: K) => (value: FormState[K]) => {
@@ -655,14 +648,20 @@ export default function PredictionPage() {
           </div>
 
           <RecentPredictions
-            onUpdateOutcome={(caseId) => {
-              setOutcomeCase(caseId);
+            refreshKey={recentRefreshKey}
+            onUpdateOutcome={(predictionId) => {
+              setOutcomePredictionId(predictionId);
               setOutcomeOpen(true);
             }}
           />
         </main>
 
-        <OutcomeModal open={outcomeOpen} caseId={outcomeCase} onOpenChange={setOutcomeOpen} />
+        <OutcomeModal
+          open={outcomeOpen}
+          predictionId={outcomePredictionId}
+          onOpenChange={setOutcomeOpen}
+          onSaved={() => setRecentRefreshKey((key) => key + 1)}
+        />
 
         <footer className="border-t border-[var(--pp-border)] py-8 text-center text-xs text-[var(--pp-muted)]">
           Ovulite · Multi-tenant embryo transfer decision support · Data isolated to DayZee Farms
@@ -770,6 +769,13 @@ function ResultPanel({
 
               <FactorsBlock title="Positive Factors" items={derivePositiveFactors(prediction)} tone="pos" />
               <FactorsBlock title="Risk Factors" items={deriveRiskFactors(prediction)} tone="neg" />
+              <p className="text-xs text-[var(--pp-muted)]">
+                {prediction.shap_explanation.method === "shap"
+                  ? "Factors computed with SHAP."
+                  : prediction.shap_explanation.method === "unavailable"
+                    ? "Factor explanation was unavailable for this prediction."
+                    : "Factors approximated from the model's linear coefficients (fast surrogate, not full SHAP)."}
+              </p>
 
               {prediction.plain_language_summary && (
                 <div className="rounded-xl border border-[var(--pp-border)] bg-white/45 p-4 text-sm text-[var(--pp-foreground)]/90">
@@ -864,11 +870,41 @@ function FactorsBlock({ title, items, tone }: { title: string; items: string[]; 
   );
 }
 
-function RecentPredictions({ onUpdateOutcome }: { onUpdateOutcome: (caseId: string) => void }) {
-  const outcomeStyle: Record<RecentRow["outcome"], string> = {
+function RecentPredictions({
+  onUpdateOutcome,
+  refreshKey,
+}: {
+  onUpdateOutcome: (predictionId: number) => void;
+  refreshKey: number;
+}) {
+  const [items, setItems] = useState<HistoryItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setLoadError("");
+    api
+      .get<{ predictions: HistoryItem[]; total: number }>("/predict/history", { params: { limit: 10 } })
+      .then((res) => {
+        if (!cancelled) setItems(res.data.predictions);
+      })
+      .catch(() => {
+        if (!cancelled) setLoadError("Could not load recent predictions.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshKey]);
+
+  const outcomeStyle: Record<string, string> = {
     Pending: "border-amber-200 bg-amber-50 text-amber-800",
     Pregnant: "border-green-200 bg-green-50 text-green-700",
-    "Not Pregnant": "border-red-200 bg-red-50 text-red-700",
+    Open: "border-red-200 bg-red-50 text-red-700",
   };
 
   return (
@@ -882,43 +918,54 @@ function RecentPredictions({ onUpdateOutcome }: { onUpdateOutcome: (caseId: stri
 
       <div className="pp-glass-card overflow-hidden rounded-2xl">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[760px] text-sm">
-            <thead>
-              <tr className="bg-[var(--pp-foam)]/40 text-left">
-                {["Case ID", "Recipient", "Embryo", "Date", "Probability", "Confidence", "Outcome", "Actions"].map((heading) => (
-                  <th key={heading} className="px-4 py-3 font-semibold text-[var(--pp-foreground)]">{heading}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {recentData.map((row) => (
-                <tr key={row.caseId} className="border-t border-[var(--pp-border)] hover:bg-[var(--pp-foam)]/25">
-                  <td className="px-4 py-3 font-medium text-[var(--pp-foreground)]">{row.caseId}</td>
-                  <td className="px-4 py-3">{row.recipient}</td>
-                  <td className="px-4 py-3">{row.embryo}</td>
-                  <td className="px-4 py-3 text-[var(--pp-muted)]">{row.date}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      <div className="h-1.5 w-16 overflow-hidden rounded-full bg-[var(--pp-muted-bg)]">
-                        <div className="h-full pp-gradient-primary" style={{ width: `${row.probability}%` }} />
-                      </div>
-                      <span className="font-medium">{row.probability}%</span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3"><span className="rounded-full bg-[var(--pp-ocean)]/10 px-2.5 py-1 text-xs text-[var(--pp-ocean)]">{row.confidence}</span></td>
-                  <td className="px-4 py-3"><span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs ${outcomeStyle[row.outcome]}`}><Circle className="h-2 w-2 fill-current" />{row.outcome}</span></td>
-                  <td className="px-4 py-3">
-                    <div className="flex justify-end gap-1">
-                      <button type="button" className="pp-icon-button" title="View"><Eye className="h-4 w-4" /></button>
-                      <button type="button" className="pp-icon-button" title="Edit"><Pencil className="h-4 w-4" /></button>
-                      <button type="button" className="pp-table-button" onClick={() => onUpdateOutcome(row.caseId)}>Update Outcome</button>
-                      <button type="button" className="pp-icon-button" title="Download"><Download className="h-4 w-4" /></button>
-                    </div>
-                  </td>
+          {loading ? (
+            <div className="p-6 text-sm text-[var(--pp-muted)]">Loading recent predictions…</div>
+          ) : loadError ? (
+            <div className="p-6 text-sm text-red-600">{loadError}</div>
+          ) : items.length === 0 ? (
+            <div className="p-6 text-sm text-[var(--pp-muted)]">No predictions recorded yet — run one above to see it here.</div>
+          ) : (
+            <table className="w-full min-w-[760px] text-sm">
+              <thead>
+                <tr className="bg-[var(--pp-foam)]/40 text-left">
+                  {["ET #", "Model", "Date", "Probability", "Risk Band", "Outcome", "Actions"].map((heading) => (
+                    <th key={heading} className="px-4 py-3 font-semibold text-[var(--pp-foreground)]">{heading}</th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {items.map((item) => {
+                  const outcomeLabel = item.actual_outcome ?? "Pending";
+                  const outcomeDisplay = outcomeLabel === "Open" ? "Not Pregnant" : outcomeLabel;
+                  const probabilityPct = Math.round(item.probability * 100);
+                  return (
+                    <tr key={item.prediction_id} className="border-t border-[var(--pp-border)] hover:bg-[var(--pp-foam)]/25">
+                      <td className="px-4 py-3 font-medium text-[var(--pp-foreground)]">
+                        {item.transfer_id ? `ET #${item.transfer_id}` : `Prediction #${item.prediction_id}`}
+                      </td>
+                      <td className="px-4 py-3 text-[var(--pp-muted)]">{item.model_name}</td>
+                      <td className="px-4 py-3 text-[var(--pp-muted)]">{new Date(item.predicted_at).toLocaleDateString()}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <div className="h-1.5 w-16 overflow-hidden rounded-full bg-[var(--pp-muted-bg)]">
+                            <div className="h-full pp-gradient-primary" style={{ width: `${probabilityPct}%` }} />
+                          </div>
+                          <span className="font-medium">{probabilityPct}%</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3"><span className="rounded-full bg-[var(--pp-ocean)]/10 px-2.5 py-1 text-xs text-[var(--pp-ocean)]">{item.risk_band ?? "—"}</span></td>
+                      <td className="px-4 py-3"><span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs ${outcomeStyle[outcomeLabel] ?? outcomeStyle.Pending}`}><Circle className="h-2 w-2 fill-current" />{outcomeDisplay}</span></td>
+                      <td className="px-4 py-3">
+                        <div className="flex justify-end gap-1">
+                          <button type="button" className="pp-table-button" onClick={() => onUpdateOutcome(item.prediction_id)}>Update Outcome</button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
     </motion.section>
@@ -927,53 +974,52 @@ function RecentPredictions({ onUpdateOutcome }: { onUpdateOutcome: (caseId: stri
 
 function OutcomeModal({
   open,
+  predictionId,
   onOpenChange,
-  caseId,
+  onSaved,
 }: {
   open: boolean;
+  predictionId: number | null;
   onOpenChange: (open: boolean) => void;
-  caseId: string;
+  onSaved: () => void;
 }) {
-  const [date, setDate] = useState("");
   const [outcome, setOutcome] = useState("");
-  const [method, setMethod] = useState("");
-  const [notes, setNotes] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
 
   if (!open) return null;
+
+  const handleSave = async () => {
+    if (!predictionId || !outcome) return;
+    setSaving(true);
+    setSaveError("");
+    try {
+      await api.patch(`/predict/${predictionId}/outcome`, { actual_outcome: outcome });
+      setOutcome("");
+      onOpenChange(false);
+      onSaved();
+    } catch (err) {
+      setSaveError(getApiErrorMessage(err));
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-sm">
       <div className="pp-glass-card w-full max-w-lg rounded-3xl p-6">
         <h3 className="font-display text-2xl text-[var(--pp-foreground)]">Update Pregnancy Outcome</h3>
-        <p className="mt-1 text-sm text-[var(--pp-muted)]">Case {caseId || "-"} · record the diagnosis outcome for this ET.</p>
+        <p className="mt-1 text-sm text-[var(--pp-muted)]">Prediction #{predictionId ?? "-"} · record the confirmed diagnosis for this ET.</p>
         <div className="mt-6 grid grid-cols-1 gap-4">
-          <Field label="Pregnancy Diagnosis Date">
-            <TextInput type="date" value={date} onChange={setDate} />
-          </Field>
-          <Field label="Outcome">
-            <SelectField value={outcome} onValueChange={setOutcome} placeholder="Select outcome" options={["Pregnant", "Not Pregnant", "Pregnancy Loss", "Recheck Required", "Unknown"]} />
-          </Field>
-          <Field label="Diagnosis Method">
-            <SelectField value={method} onValueChange={setMethod} placeholder="Select method" options={["Ultrasound", "Rectal palpation", "Blood test", "Farm record", "Other"]} />
-          </Field>
-          <Field label="Notes">
-            <textarea className="pp-input min-h-24 py-3" value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Add diagnosis notes..." />
+          <Field label="Confirmed Outcome" helper="'Open' means the recipient was not confirmed pregnant.">
+            <SelectField value={outcome} onValueChange={setOutcome} placeholder="Select outcome" options={["Pregnant", "Open"]} />
           </Field>
         </div>
+        {saveError && <p className="mt-3 text-sm text-red-600">{saveError}</p>}
         <div className="mt-6 flex justify-end gap-2">
-          <button type="button" className="pp-button pp-button-ghost" onClick={() => onOpenChange(false)}>Cancel</button>
-          <button
-            type="button"
-            className="pp-button pp-button-primary"
-            onClick={() => {
-              onOpenChange(false);
-              setDate("");
-              setOutcome("");
-              setMethod("");
-              setNotes("");
-            }}
-          >
-            Save Outcome
+          <button type="button" className="pp-button pp-button-ghost" onClick={() => onOpenChange(false)} disabled={saving}>Cancel</button>
+          <button type="button" className="pp-button pp-button-primary" onClick={handleSave} disabled={saving || !outcome}>
+            {saving ? "Saving…" : "Save Outcome"}
           </button>
         </div>
       </div>

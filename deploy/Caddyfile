@@ -1,0 +1,16 @@
+# TLS termination for production (NFR-SEC-01).
+#
+# Caddy gets HTTPS automatically: real Let's Encrypt certificates for real
+# domains, or its own internal CA for *.localhost during a local TLS smoke
+# test — no manual certificate handling either way.
+#
+# Set API_DOMAIN / APP_DOMAIN in .env when deploying to real domains.
+# Defaults below are for local testing only.
+
+{$API_DOMAIN:api.localhost} {
+	reverse_proxy backend:8000
+}
+
+{$APP_DOMAIN:app.localhost} {
+	reverse_proxy frontend:5174
+}
