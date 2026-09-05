@@ -45,6 +45,11 @@ def get_protocol(protocol_id: int, db: Session = Depends(get_db), current_user: 
 def create_protocol(
     payload: ProtocolCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user),
 ):
+    existing = db.query(Protocol).filter(
+        Protocol.name == payload.name, Protocol.organization_id == current_user.organization_id
+    ).first()
+    if existing:
+        raise HTTPException(status_code=409, detail=f"Protocol named '{payload.name}' already exists")
     p = Protocol(**payload.model_dump(), organization_id=current_user.organization_id)
     db.add(p)
     db.commit()

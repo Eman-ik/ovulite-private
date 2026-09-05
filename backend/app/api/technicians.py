@@ -45,6 +45,11 @@ def get_technician(technician_id: int, db: Session = Depends(get_db), current_us
 def create_technician(
     payload: TechnicianCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user),
 ):
+    existing = db.query(Technician).filter(
+        Technician.name == payload.name, Technician.organization_id == current_user.organization_id
+    ).first()
+    if existing:
+        raise HTTPException(status_code=409, detail=f"Technician named '{payload.name}' already exists")
     t = Technician(**payload.model_dump(), organization_id=current_user.organization_id)
     db.add(t)
     db.commit()

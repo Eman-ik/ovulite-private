@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import String, Text, func
+from sqlalchemy import String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -16,7 +16,7 @@ class Protocol(OrganizationScopedMixin, Base):
     __tablename__ = "protocols"
 
     protocol_id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    name: Mapped[str] = mapped_column(String(200), unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
@@ -24,4 +24,10 @@ class Protocol(OrganizationScopedMixin, Base):
     transfers: Mapped[list["ETTransfer"]] = relationship(back_populates="protocol")
     protocol_logs: Mapped[list["ProtocolLog"]] = relationship(
         back_populates="protocol"
+    )
+
+    __table_args__ = (
+        # name is unique per organization, not globally — two organizations
+        # may each define their own protocol with the same name.
+        UniqueConstraint("organization_id", "name", name="uq_protocols_org_name"),
     )

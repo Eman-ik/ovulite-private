@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import Boolean, String, func
+from sqlalchemy import Boolean, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -15,7 +15,7 @@ class Technician(OrganizationScopedMixin, Base):
     __tablename__ = "technicians"
 
     technician_id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
     role: Mapped[Optional[str]] = mapped_column(
         String(50), server_default="ET Technician"
     )
@@ -24,3 +24,9 @@ class Technician(OrganizationScopedMixin, Base):
 
     # Relationships
     transfers: Mapped[list["ETTransfer"]] = relationship(back_populates="technician")
+
+    __table_args__ = (
+        # name is unique per organization, not globally — two organizations
+        # may each employ a technician with the same name.
+        UniqueConstraint("organization_id", "name", name="uq_technicians_org_name"),
+    )
