@@ -10,6 +10,8 @@ from pydantic import BaseModel, field_validator
 class EmbryoBase(BaseModel):
     donor_id: Optional[int] = None
     sire_id: Optional[int] = None
+    opu_id: Optional[int] = None
+    ivf_batch_id: Optional[int] = None
     opu_date: Optional[date] = None
     stage: Optional[int] = None
     grade: Optional[int] = None
@@ -47,6 +49,8 @@ class EmbryoCreate(EmbryoBase):
 class EmbryoUpdate(BaseModel):
     donor_id: Optional[int] = None
     sire_id: Optional[int] = None
+    opu_id: Optional[int] = None
+    ivf_batch_id: Optional[int] = None
     opu_date: Optional[date] = None
     stage: Optional[int] = None
     grade: Optional[int] = None

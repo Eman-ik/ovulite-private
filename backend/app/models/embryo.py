@@ -12,6 +12,8 @@ if TYPE_CHECKING:
     from app.models.donor import Donor
     from app.models.embryo_image import EmbryoImage
     from app.models.et_transfer import ETTransfer
+    from app.models.ivf_batch import IVFBatch
+    from app.models.opu_session import OPUSession
     from app.models.sire import Sire
 
 
@@ -25,6 +27,8 @@ class Embryo(OrganizationScopedMixin, Base):
     sire_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("sires.sire_id")
     )
+    opu_id: Mapped[Optional[int]] = mapped_column(ForeignKey("opu_sessions.opu_id"))
+    ivf_batch_id: Mapped[Optional[int]] = mapped_column(ForeignKey("ivf_batches.ivf_batch_id"))
     opu_date: Mapped[Optional[date]] = mapped_column(Date)
     stage: Mapped[Optional[int]] = mapped_column(Integer)
     grade: Mapped[Optional[int]] = mapped_column(Integer)
@@ -42,6 +46,8 @@ class Embryo(OrganizationScopedMixin, Base):
     # Relationships
     donor: Mapped[Optional["Donor"]] = relationship(back_populates="embryos")
     sire: Mapped[Optional["Sire"]] = relationship(back_populates="embryos")
+    opu_session: Mapped[Optional["OPUSession"]] = relationship(back_populates="embryos")
+    ivf_batch: Mapped[Optional["IVFBatch"]] = relationship(back_populates="embryos")
     images: Mapped[list["EmbryoImage"]] = relationship(back_populates="embryo")
     transfers: Mapped[list["ETTransfer"]] = relationship(back_populates="embryo")
 

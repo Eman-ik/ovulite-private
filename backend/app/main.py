@@ -22,6 +22,8 @@ from app.api.embryos import router as embryos_router
 from app.api.import_data import router as import_router
 from app.api.grading import router as grading_router
 from app.api.health import router as health_router
+from app.api.ivf_batches import router as ivf_batches_router
+from app.api.opu_sessions import router as opu_sessions_router
 from app.api.organizations import router as organizations_router
 from app.api.predictions import router as predictions_router
 from app.api.protocols import router as protocols_router
@@ -130,6 +132,8 @@ app.include_router(donors_router, prefix="/donors", tags=["donors"])
 app.include_router(sires_router, prefix="/sires", tags=["sires"])
 app.include_router(recipients_router, prefix="/recipients", tags=["recipients"])
 app.include_router(embryos_router, prefix="/embryos", tags=["embryos"])
+app.include_router(opu_sessions_router, prefix="/opu-sessions", tags=["opu_sessions"])
+app.include_router(ivf_batches_router, prefix="/ivf-batches", tags=["ivf_batches"])
 app.include_router(transfers_router, prefix="/transfers", tags=["transfers"])
 app.include_router(technicians_router, prefix="/technicians", tags=["technicians"])
 app.include_router(protocols_router, prefix="/protocols", tags=["protocols"])

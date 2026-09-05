@@ -56,10 +56,46 @@ export interface Protocol {
   created_at: string;
 }
 
+export interface OPUSession {
+  opu_id: number;
+  donor_id: number;
+  opu_date: string;
+  technician_id: number | null;
+  farm_location: string | null;
+  total_follicles: number | null;
+  oocytes_recovered: number | null;
+  viable_oocytes: number | null;
+  recovery_rate: number | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface IVFBatch {
+  ivf_batch_id: number;
+  opu_id: number;
+  sire_id: number | null;
+  ivf_date: string | null;
+  oocytes_used: number | null;
+  mature_oocytes: number | null;
+  cleaved_embryos: number | null;
+  blastocysts: number | null;
+  degenerated_embryos: number | null;
+  culture_media: string | null;
+  embryologist_id: number | null;
+  cleavage_rate: number | null;
+  blastocyst_rate: number | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Embryo {
   embryo_id: number;
   donor_id: number | null;
   sire_id: number | null;
+  opu_id: number | null;
+  ivf_batch_id: number | null;
   opu_date: string | null;
   stage: number | null;
   grade: number | null;

@@ -15,6 +15,8 @@ from app.models import (  # noqa: F401 — ensure all models registered
     Embryo,
     EmbryoImage,
     ETTransfer,
+    IVFBatch,
+    OPUSession,
     Prediction,
     Protocol,
     ProtocolLog,

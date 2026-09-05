@@ -5,6 +5,8 @@ from app.models.donor import Donor
 from app.models.embryo import Embryo
 from app.models.embryo_image import EmbryoImage
 from app.models.et_transfer import ETTransfer
+from app.models.ivf_batch import IVFBatch
+from app.models.opu_session import OPUSession
 from app.models.organization import Organization, OrganizationInvitation, OrganizationMembership
 from app.models.prediction import Prediction
 from app.models.protocol import Protocol
@@ -21,6 +23,8 @@ __all__ = [
     "Embryo",
     "EmbryoImage",
     "ETTransfer",
+    "IVFBatch",
+    "OPUSession",
     "Organization",
     "OrganizationInvitation",
     "OrganizationMembership",
