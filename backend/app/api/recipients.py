@@ -22,9 +22,9 @@ def list_recipients(
     page_size: int = Query(25, ge=1, le=100),
     search: Optional[str] = None,
     db: Session = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
-    q = db.query(Recipient)
+    q = db.query(Recipient).filter(Recipient.organization_id == current_user.organization_id)
     if search:
         q = q.filter(
             Recipient.tag_id.ilike(f"%{search}%") | Recipient.farm_location.ilike(f"%{search}%")
@@ -38,8 +38,10 @@ def list_recipients(
 
 
 @router.get("/{recipient_id}", response_model=RecipientResponse)
-def get_recipient(recipient_id: int, db: Session = Depends(get_db), _current_user: User = Depends(get_current_user)):
-    r = db.query(Recipient).filter(Recipient.recipient_id == recipient_id).first()
+def get_recipient(recipient_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    r = db.query(Recipient).filter(
+        Recipient.recipient_id == recipient_id, Recipient.organization_id == current_user.organization_id
+    ).first()
     if not r:
         raise HTTPException(status_code=404, detail="Recipient not found")
     return r
@@ -47,9 +49,9 @@ def get_recipient(recipient_id: int, db: Session = Depends(get_db), _current_use
 
 @router.post("/", response_model=RecipientResponse, status_code=status.HTTP_201_CREATED)
 def create_recipient(
-    payload: RecipientCreate, db: Session = Depends(get_db), _current_user: User = Depends(get_current_user),
+    payload: RecipientCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user),
 ):
-    r = Recipient(**payload.model_dump())
+    r = Recipient(**payload.model_dump(), organization_id=current_user.organization_id)
     db.add(r)
     db.commit()
     db.refresh(r)
@@ -58,9 +60,11 @@ def create_recipient(
 
 @router.put("/{recipient_id}", response_model=RecipientResponse)
 def update_recipient(
-    recipient_id: int, payload: RecipientUpdate, db: Session = Depends(get_db), _current_user: User = Depends(get_current_user),
+    recipient_id: int, payload: RecipientUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user),
 ):
-    r = db.query(Recipient).filter(Recipient.recipient_id == recipient_id).first()
+    r = db.query(Recipient).filter(
+        Recipient.recipient_id == recipient_id, Recipient.organization_id == current_user.organization_id
+    ).first()
     if not r:
         raise HTTPException(status_code=404, detail="Recipient not found")
     for key, value in payload.model_dump(exclude_unset=True).items():
@@ -71,8 +75,10 @@ def update_recipient(
 
 
 @router.delete("/{recipient_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_recipient(recipient_id: int, db: Session = Depends(get_db), _current_user: User = Depends(get_current_user)):
-    r = db.query(Recipient).filter(Recipient.recipient_id == recipient_id).first()
+def delete_recipient(recipient_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    r = db.query(Recipient).filter(
+        Recipient.recipient_id == recipient_id, Recipient.organization_id == current_user.organization_id
+    ).first()
     if not r:
         raise HTTPException(status_code=404, detail="Recipient not found")
     db.delete(r)

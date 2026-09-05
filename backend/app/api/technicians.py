@@ -20,9 +20,9 @@ def list_technicians(
     page: int = Query(1, ge=1),
     page_size: int = Query(25, ge=1, le=100),
     db: Session = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
-    q = db.query(Technician)
+    q = db.query(Technician).filter(Technician.organization_id == current_user.organization_id)
     total = q.count()
     items = q.order_by(Technician.technician_id).offset((page - 1) * page_size).limit(page_size).all()
     return PaginatedResponse(
@@ -32,8 +32,10 @@ def list_technicians(
 
 
 @router.get("/{technician_id}", response_model=TechnicianResponse)
-def get_technician(technician_id: int, db: Session = Depends(get_db), _current_user: User = Depends(get_current_user)):
-    t = db.query(Technician).filter(Technician.technician_id == technician_id).first()
+def get_technician(technician_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    t = db.query(Technician).filter(
+        Technician.technician_id == technician_id, Technician.organization_id == current_user.organization_id
+    ).first()
     if not t:
         raise HTTPException(status_code=404, detail="Technician not found")
     return t
@@ -41,9 +43,9 @@ def get_technician(technician_id: int, db: Session = Depends(get_db), _current_u
 
 @router.post("/", response_model=TechnicianResponse, status_code=status.HTTP_201_CREATED)
 def create_technician(
-    payload: TechnicianCreate, db: Session = Depends(get_db), _current_user: User = Depends(get_current_user),
+    payload: TechnicianCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user),
 ):
-    t = Technician(**payload.model_dump())
+    t = Technician(**payload.model_dump(), organization_id=current_user.organization_id)
     db.add(t)
     db.commit()
     db.refresh(t)
@@ -52,9 +54,11 @@ def create_technician(
 
 @router.put("/{technician_id}", response_model=TechnicianResponse)
 def update_technician(
-    technician_id: int, payload: TechnicianUpdate, db: Session = Depends(get_db), _current_user: User = Depends(get_current_user),
+    technician_id: int, payload: TechnicianUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user),
 ):
-    t = db.query(Technician).filter(Technician.technician_id == technician_id).first()
+    t = db.query(Technician).filter(
+        Technician.technician_id == technician_id, Technician.organization_id == current_user.organization_id
+    ).first()
     if not t:
         raise HTTPException(status_code=404, detail="Technician not found")
     for key, value in payload.model_dump(exclude_unset=True).items():

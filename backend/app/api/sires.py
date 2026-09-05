@@ -22,9 +22,9 @@ def list_sires(
     page_size: int = Query(25, ge=1, le=100),
     search: Optional[str] = None,
     db: Session = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
-    q = db.query(Sire)
+    q = db.query(Sire).filter(Sire.organization_id == current_user.organization_id)
     if search:
         q = q.filter(Sire.name.ilike(f"%{search}%") | Sire.breed.ilike(f"%{search}%"))
     total = q.count()
@@ -36,8 +36,10 @@ def list_sires(
 
 
 @router.get("/{sire_id}", response_model=SireResponse)
-def get_sire(sire_id: int, db: Session = Depends(get_db), _current_user: User = Depends(get_current_user)):
-    sire = db.query(Sire).filter(Sire.sire_id == sire_id).first()
+def get_sire(sire_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    sire = db.query(Sire).filter(
+        Sire.sire_id == sire_id, Sire.organization_id == current_user.organization_id
+    ).first()
     if not sire:
         raise HTTPException(status_code=404, detail="Sire not found")
     return sire
@@ -45,9 +47,9 @@ def get_sire(sire_id: int, db: Session = Depends(get_db), _current_user: User = 
 
 @router.post("/", response_model=SireResponse, status_code=status.HTTP_201_CREATED)
 def create_sire(
-    payload: SireCreate, db: Session = Depends(get_db), _current_user: User = Depends(get_current_user),
+    payload: SireCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user),
 ):
-    sire = Sire(**payload.model_dump())
+    sire = Sire(**payload.model_dump(), organization_id=current_user.organization_id)
     db.add(sire)
     db.commit()
     db.refresh(sire)
@@ -56,9 +58,11 @@ def create_sire(
 
 @router.put("/{sire_id}", response_model=SireResponse)
 def update_sire(
-    sire_id: int, payload: SireUpdate, db: Session = Depends(get_db), _current_user: User = Depends(get_current_user),
+    sire_id: int, payload: SireUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user),
 ):
-    sire = db.query(Sire).filter(Sire.sire_id == sire_id).first()
+    sire = db.query(Sire).filter(
+        Sire.sire_id == sire_id, Sire.organization_id == current_user.organization_id
+    ).first()
     if not sire:
         raise HTTPException(status_code=404, detail="Sire not found")
     for key, value in payload.model_dump(exclude_unset=True).items():
@@ -69,8 +73,10 @@ def update_sire(
 
 
 @router.delete("/{sire_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_sire(sire_id: int, db: Session = Depends(get_db), _current_user: User = Depends(get_current_user)):
-    sire = db.query(Sire).filter(Sire.sire_id == sire_id).first()
+def delete_sire(sire_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    sire = db.query(Sire).filter(
+        Sire.sire_id == sire_id, Sire.organization_id == current_user.organization_id
+    ).first()
     if not sire:
         raise HTTPException(status_code=404, detail="Sire not found")
     db.delete(sire)

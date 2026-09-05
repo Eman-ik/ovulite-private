@@ -22,10 +22,10 @@ def list_donors(
     page_size: int = Query(25, ge=1, le=100),
     search: Optional[str] = None,
     db: Session = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     """List donors with pagination and optional search."""
-    q = db.query(Donor)
+    q = db.query(Donor).filter(Donor.organization_id == current_user.organization_id)
     if search:
         q = q.filter(
             Donor.tag_id.ilike(f"%{search}%")
@@ -43,10 +43,12 @@ def list_donors(
 def get_donor(
     donor_id: int,
     db: Session = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     """Get a single donor by ID."""
-    donor = db.query(Donor).filter(Donor.donor_id == donor_id).first()
+    donor = db.query(Donor).filter(
+        Donor.donor_id == donor_id, Donor.organization_id == current_user.organization_id
+    ).first()
     if not donor:
         raise HTTPException(status_code=404, detail="Donor not found")
     return donor
@@ -56,13 +58,15 @@ def get_donor(
 def create_donor(
     payload: DonorCreate,
     db: Session = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     """Create a new donor."""
-    existing = db.query(Donor).filter(Donor.tag_id == payload.tag_id).first()
+    existing = db.query(Donor).filter(
+        Donor.tag_id == payload.tag_id, Donor.organization_id == current_user.organization_id
+    ).first()
     if existing:
         raise HTTPException(status_code=409, detail=f"Donor with tag '{payload.tag_id}' already exists")
-    donor = Donor(**payload.model_dump())
+    donor = Donor(**payload.model_dump(), organization_id=current_user.organization_id)
     db.add(donor)
     db.commit()
     db.refresh(donor)
@@ -74,10 +78,12 @@ def update_donor(
     donor_id: int,
     payload: DonorUpdate,
     db: Session = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     """Update a donor."""
-    donor = db.query(Donor).filter(Donor.donor_id == donor_id).first()
+    donor = db.query(Donor).filter(
+        Donor.donor_id == donor_id, Donor.organization_id == current_user.organization_id
+    ).first()
     if not donor:
         raise HTTPException(status_code=404, detail="Donor not found")
     update_data = payload.model_dump(exclude_unset=True)
@@ -92,10 +98,12 @@ def update_donor(
 def delete_donor(
     donor_id: int,
     db: Session = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     """Delete a donor."""
-    donor = db.query(Donor).filter(Donor.donor_id == donor_id).first()
+    donor = db.query(Donor).filter(
+        Donor.donor_id == donor_id, Donor.organization_id == current_user.organization_id
+    ).first()
     if not donor:
         raise HTTPException(status_code=404, detail="Donor not found")
     db.delete(donor)

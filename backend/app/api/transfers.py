@@ -65,7 +65,7 @@ def list_transfers(
     technician_id: Optional[int] = None,
     pc1_result: Optional[str] = None,
     db: Session = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     """List ET transfers with pagination, filters, and joined entity names."""
     q = db.query(ETTransfer).options(
@@ -74,7 +74,7 @@ def list_transfers(
         joinedload(ETTransfer.recipient),
         joinedload(ETTransfer.technician),
         joinedload(ETTransfer.protocol),
-    )
+    ).filter(ETTransfer.organization_id == current_user.organization_id)
     if search:
         q = q.filter(
             ETTransfer.customer_id.ilike(f"%{search}%")
@@ -100,7 +100,7 @@ def list_transfers(
 def get_transfer(
     transfer_id: int,
     db: Session = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     t = (
         db.query(ETTransfer)
@@ -111,7 +111,10 @@ def get_transfer(
             joinedload(ETTransfer.technician),
             joinedload(ETTransfer.protocol),
         )
-        .filter(ETTransfer.transfer_id == transfer_id)
+        .filter(
+            ETTransfer.transfer_id == transfer_id,
+            ETTransfer.organization_id == current_user.organization_id,
+        )
         .first()
     )
     if not t:
@@ -123,10 +126,12 @@ def get_transfer(
 def create_transfer(
     payload: ETTransferCreate,
     db: Session = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     """Create a new ET transfer record."""
-    transfer = ETTransfer(**payload.model_dump())
+    transfer = ETTransfer(
+        **payload.model_dump(), organization_id=current_user.organization_id
+    )
     db.add(transfer)
     db.commit()
     db.refresh(transfer)
@@ -138,9 +143,16 @@ def update_transfer(
     transfer_id: int,
     payload: ETTransferUpdate,
     db: Session = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
-    t = db.query(ETTransfer).filter(ETTransfer.transfer_id == transfer_id).first()
+    t = (
+        db.query(ETTransfer)
+        .filter(
+            ETTransfer.transfer_id == transfer_id,
+            ETTransfer.organization_id == current_user.organization_id,
+        )
+        .first()
+    )
     if not t:
         raise HTTPException(status_code=404, detail="Transfer not found")
     for key, value in payload.model_dump(exclude_unset=True).items():
@@ -154,9 +166,16 @@ def update_transfer(
 def delete_transfer(
     transfer_id: int,
     db: Session = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
-    t = db.query(ETTransfer).filter(ETTransfer.transfer_id == transfer_id).first()
+    t = (
+        db.query(ETTransfer)
+        .filter(
+            ETTransfer.transfer_id == transfer_id,
+            ETTransfer.organization_id == current_user.organization_id,
+        )
+        .first()
+    )
     if not t:
         raise HTTPException(status_code=404, detail="Transfer not found")
     db.delete(t)
